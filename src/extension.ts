@@ -33,6 +33,12 @@ class Nuxt3CodeLensProvider implements vscode.CodeLensProvider {
   async provideCodeLenses(document: vscode.TextDocument): Promise<vscode.CodeLens[]> {
     const lenses: vscode.CodeLens[] = [];
 
+    const fileName = path.basename(document.fileName);
+
+    if (fileName === 'app.vue' || fileName === 'error.vue') {
+      return [];
+    }
+
     // Trouver la racine du projet Nuxt
     this.nuxtProjectRoot = await this.findNuxtProjectRoot(document.uri);
 
@@ -40,7 +46,6 @@ class Nuxt3CodeLensProvider implements vscode.CodeLensProvider {
     await this.updateAutoImportCacheIfNeeded();
 
     // Le nom du fichier actuel (pour déterminer le type)
-    const fileName = path.basename(document.fileName);
     const fileDir = path.dirname(document.fileName);
     const fileExtension = path.extname(document.fileName);
     const isVueFile = fileExtension === '.vue';
@@ -87,86 +92,89 @@ class Nuxt3CodeLensProvider implements vscode.CodeLensProvider {
 
     // 2. Détection des composants Vue et Nuxt (dans /components/*.vue)
     if (isVueFile) {
-      // 2.1 Pour les composants avec <script setup>
-      const scriptSetupRegex = /<script\s+setup[^>]*>/g;
-      let match: RegExpExecArray | null;
+      // Ne pas afficher les CodeLens pour les composants si on est dans une page
+      if (!isPages) {
+        // 2.1 Pour les composants avec <script setup>
+        const scriptSetupRegex = /<script\s+setup[^>]*>/g;
+        let match: RegExpExecArray | null;
 
-      while ((match = scriptSetupRegex.exec(text))) {
-        const pos = document.positionAt(match.index);
-        const range = new vscode.Range(pos.line, 0, pos.line, 0);
+        while ((match = scriptSetupRegex.exec(text))) {
+          const pos = document.positionAt(match.index);
+          const range = new vscode.Range(pos.line, 0, pos.line, 0);
 
-        // Nom du composant basé sur le nom de fichier
-        const componentName = path.basename(document.fileName, '.vue');
+          // Nom du composant basé sur le nom de fichier
+          const componentName = path.basename(document.fileName, '.vue');
 
-        // Rechercher les références, y compris les auto-importations
-        const references = await this.findComponentReferences(document, componentName);
-        const referenceCount = references.length;
+          // Rechercher les références, y compris les auto-importations
+          const references = await this.findComponentReferences(document, componentName);
+          const referenceCount = references.length;
 
-        const autoImportInfo = isComponent ? "auto-importé" : "";
+          const autoImportInfo = isComponent ? "auto-importé" : "";
 
-        lenses.push(
-          new vscode.CodeLens(range, {
-            title: `🧩 ${referenceCount} utilisation${referenceCount === 1 ? '' : 's'} du composant${autoImportInfo ? ` (${autoImportInfo})` : ''}`,
-            command: 'editor.action.showReferences',
-            arguments: [
-              document.uri,
-              pos,
-              references
-            ]
-          })
-        );
-      }
+          lenses.push(
+            new vscode.CodeLens(range, {
+              title: `🧩 ${referenceCount} utilisation${referenceCount === 1 ? '' : 's'} du composant${autoImportInfo ? ` (${autoImportInfo})` : ''}`,
+              command: 'editor.action.showReferences',
+              arguments: [
+                document.uri,
+                pos,
+                references
+              ]
+            })
+          );
+        }
 
-      // 2.2 Pour les composants avec defineComponent
-      const defineComponentRegex = /defineComponent\s*\(/g;
-      while ((match = defineComponentRegex.exec(text))) {
-        const pos = document.positionAt(match.index);
-        const range = new vscode.Range(pos.line, 0, pos.line, 0);
+        // 2.2 Pour les composants avec defineComponent
+        const defineComponentRegex = /defineComponent\s*\(/g;
+        while ((match = defineComponentRegex.exec(text))) {
+          const pos = document.positionAt(match.index);
+          const range = new vscode.Range(pos.line, 0, pos.line, 0);
 
-        // Nom du composant basé sur le nom de fichier
-        const componentName = path.basename(document.fileName, '.vue');
+          // Nom du composant basé sur le nom de fichier
+          const componentName = path.basename(document.fileName, '.vue');
 
-        // Rechercher les références, y compris les auto-importations
-        const references = await this.findComponentReferences(document, componentName);
-        const referenceCount = references.length;
+          // Rechercher les références, y compris les auto-importations
+          const references = await this.findComponentReferences(document, componentName);
+          const referenceCount = references.length;
 
-        lenses.push(
-          new vscode.CodeLens(range, {
-            title: `🧩 ${referenceCount} utilisation${referenceCount === 1 ? '' : 's'} du composant`,
-            command: 'editor.action.showReferences',
-            arguments: [
-              document.uri,
-              pos,
-              references
-            ]
-          })
-        );
-      }
+          lenses.push(
+            new vscode.CodeLens(range, {
+              title: `🧩 ${referenceCount} utilisation${referenceCount === 1 ? '' : 's'} du composant`,
+              command: 'editor.action.showReferences',
+              arguments: [
+                document.uri,
+                pos,
+                references
+              ]
+            })
+          );
+        }
 
-      // 2.3 Pour les composants Nuxt spécifiques
-      const defineNuxtComponentRegex = /defineNuxtComponent\s*\(/g;
-      while ((match = defineNuxtComponentRegex.exec(text))) {
-        const pos = document.positionAt(match.index);
-        const range = new vscode.Range(pos.line, 0, pos.line, 0);
+        // 2.3 Pour les composants Nuxt spécifiques
+        const defineNuxtComponentRegex = /defineNuxtComponent\s*\(/g;
+        while ((match = defineNuxtComponentRegex.exec(text))) {
+          const pos = document.positionAt(match.index);
+          const range = new vscode.Range(pos.line, 0, pos.line, 0);
 
-        // Nom du composant basé sur le nom de fichier
-        const componentName = path.basename(document.fileName, '.vue');
+          // Nom du composant basé sur le nom de fichier
+          const componentName = path.basename(document.fileName, '.vue');
 
-        // Rechercher les références, y compris les auto-importations
-        const references = await this.findComponentReferences(document, componentName);
-        const referenceCount = references.length;
+          // Rechercher les références, y compris les auto-importations
+          const references = await this.findComponentReferences(document, componentName);
+          const referenceCount = references.length;
 
-        lenses.push(
-          new vscode.CodeLens(range, {
-            title: `⚡ ${referenceCount} utilisation${referenceCount === 1 ? '' : 's'} du composant Nuxt`,
-            command: 'editor.action.showReferences',
-            arguments: [
-              document.uri,
-              pos,
-              references
-            ]
-          })
-        );
+          lenses.push(
+            new vscode.CodeLens(range, {
+              title: `⚡ ${referenceCount} utilisation${referenceCount === 1 ? '' : 's'} du composant Nuxt`,
+              command: 'editor.action.showReferences',
+              arguments: [
+                document.uri,
+                pos,
+                references
+              ]
+            })
+          );
+        }
       }
     }
 
@@ -225,28 +233,6 @@ class Nuxt3CodeLensProvider implements vscode.CodeLensProvider {
               pos,
               references
             ]
-          })
-        );
-      }
-    }
-
-    // 5. Détection des pages Nuxt (dans /pages/*.vue)
-    if (isPages) {
-      // Pour les pages
-      const pageSetupRegex = /<script\s+setup[^>]*>|<template>/g;
-      let match: RegExpExecArray | null;
-
-      if ((match = pageSetupRegex.exec(text))) {
-        const pos = document.positionAt(match.index);
-        const range = new vscode.Range(pos.line, 0, pos.line, 0);
-
-        // Calculer le chemin de la route
-        const routePath = this.calculateRoutePath(document.fileName);
-
-        lenses.push(
-          new vscode.CodeLens(range, {
-            title: `📄 Page: ${routePath}`,
-            command: ''
           })
         );
       }
@@ -471,20 +457,29 @@ class Nuxt3CodeLensProvider implements vscode.CodeLensProvider {
 
       // Si nous avons un projet Nuxt, rechercher les auto-importations
       if (this.nuxtProjectRoot) {
-        const autoImportRefs = await this.findAutoImportReferences(name, 'composable');
-        filteredReferences.push(...autoImportRefs);
+        // Rechercher les occurrences du composable dans tous les fichiers
+        const allFiles = await this.getFilesRecursively(this.nuxtProjectRoot, ['.vue', '.ts', '.js']);
 
-        // Filtrer pour exclure les stores Pinia
-        filteredReferences.forEach(ref => {
+        for (const file of allFiles) {
+          // Éviter de chercher dans le fichier courant
+          if (file === document.uri.fsPath) continue;
+
           try {
-            const content = fs.readFileSync(ref.uri.fsPath, 'utf-8');
-            if (content.includes(`defineStore('${name}'`) || content.includes(`defineStore("${name}"`)) {
-              filteredReferences.splice(filteredReferences.indexOf(ref), 1);
+            const content = fs.readFileSync(file, 'utf-8');
+
+            // Chercher les utilisations du composable
+            // Ajouter une expression régulière plus précise pour trouver les utilisations
+            const usage = new RegExp(`\\b${name}\\s*\\(`, 'g');
+
+            if (usage.test(content)) {
+              const uri = vscode.Uri.file(file);
+              const pos = new vscode.Position(0, 0);
+              filteredReferences.push(new vscode.Location(uri, pos));
             }
           } catch (e) {
             // Ignorer les erreurs
           }
-        });
+        }
       }
 
       return filteredReferences;
@@ -492,7 +487,6 @@ class Nuxt3CodeLensProvider implements vscode.CodeLensProvider {
       return [];
     }
   }
-
   /**
    * Trouver toutes les références pour un composant
    */
@@ -506,18 +500,33 @@ class Nuxt3CodeLensProvider implements vscode.CodeLensProvider {
         pos
       ) || [];
 
-      // Filtrer les fichiers générés par Nuxt
-      const filteredReferences = references.filter(ref => !ref.uri.fsPath.includes('.nuxt'));
+      // Filtrer les fichiers générés par Nuxt, app.vue et error.vue
+      const filteredReferences = references.filter(ref => {
+        const fileName = path.basename(ref.uri.fsPath);
+        return !ref.uri.fsPath.includes('.nuxt') &&
+          fileName !== 'app.vue' &&
+          fileName !== 'error.vue';
+      });
 
       // Si nous avons un projet Nuxt, rechercher les auto-importations
       if (this.nuxtProjectRoot) {
         // Chercher les utilisations comme balises HTML (ex: <MyComponent />)
         const tagReferences = await this.findTagReferences(componentName);
-        filteredReferences.push(...tagReferences);
+        // Filtrer pour supprimer app.vue et error.vue
+        const filteredTagReferences = tagReferences.filter(ref => {
+          const fileName = path.basename(ref.uri.fsPath);
+          return fileName !== 'app.vue' && fileName !== 'error.vue';
+        });
+        filteredReferences.push(...filteredTagReferences);
 
         // Chercher les auto-importations
         const autoImportRefs = await this.findAutoImportReferences(componentName, 'component');
-        filteredReferences.push(...autoImportRefs);
+        // Filtrer pour supprimer app.vue et error.vue
+        const filteredAutoImportRefs = autoImportRefs.filter(ref => {
+          const fileName = path.basename(ref.uri.fsPath);
+          return fileName !== 'app.vue' && fileName !== 'error.vue';
+        });
+        filteredReferences.push(...filteredAutoImportRefs);
       }
 
       return filteredReferences;
@@ -647,23 +656,27 @@ class Nuxt3CodeLensProvider implements vscode.CodeLensProvider {
   private async findStoreReferences(storeName: string): Promise<vscode.Location[]> {
     try {
       const references: vscode.Location[] = [];
-      // Construire le terme de recherche
-      const searchTerm = `use${storeName.charAt(0).toUpperCase() + storeName.slice(1)}`;
-      // Utiliser la recherche globale de VS Code
-      const searchResults = await vscode.commands.executeCommand<vscode.SymbolInformation[]>(
-        'vscode.executeWorkspaceSymbolProvider',
-        searchTerm
-      );
 
-      for (const file of searchResults.values()) {
-        try {
-          const content = fs.readFileSync(file.location.uri.fsPath, 'utf-8');
-          // Vérifier que le fichier contient une définition de store
-          if (content.includes(`defineStore('${storeName}'`) || content.includes(`defineStore("${storeName}"`)) {
-            references.push(new vscode.Location(file.location.uri, file.location.range));
+      // Nous recherchons le motif "useXxxStore" où Xxx est le storeName avec une première lettre majuscule
+      const storeHookName = `use${storeName.charAt(0).toUpperCase() + storeName.slice(1)}Store`;
+
+      // Chercher dans tous les fichiers du projet
+      if (this.nuxtProjectRoot) {
+        const allFiles = await this.getFilesRecursively(this.nuxtProjectRoot, ['.vue', '.ts', '.js']);
+
+        for (const file of allFiles) {
+          try {
+            const content = fs.readFileSync(file, 'utf-8');
+
+            // Chercher des utilisations du store
+            if (content.includes(storeHookName)) {
+              const uri = vscode.Uri.file(file);
+              const pos = new vscode.Position(0, 0);
+              references.push(new vscode.Location(uri, pos));
+            }
+          } catch (e) {
+            // Ignorer les erreurs
           }
-        } catch (e) {
-          // Ignorer les erreurs
         }
       }
 
