@@ -1,0 +1,35 @@
+{
+  "name": "vue-smart-lens",
+  "displayName": "Vue Smart Lens",
+  "description": "Affiche les références et les composants utilisés dans vos fichiers Vue 3 et Nuxt 3.",
+  "version": "0.0.1",
+  "publisher": "ton-nom-ou-nom-dorg",
+  "engines": {
+    "vscode": "^1.75.0"
+  },
+  "categories": ["Other", "Programming Languages"],
+  "activationEvents": ["onLanguage:vue", "onLanguage:typescript"],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [],
+    "languages": [
+      {
+        "id": "vue",
+        "aliases": ["Vue", "vue"],
+        "extensions": [".vue"]
+      }
+    ]
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "pretest": "npm run compile && npm run lint",
+    "lint": "eslint src --ext ts"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.75.0",
+    "typescript": "^5.0.0",
+    "vscode-test": "^1.6.0"
+  }
+}
