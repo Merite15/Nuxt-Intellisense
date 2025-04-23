@@ -95,6 +95,8 @@ class Nuxt3CodeLensProvider implements vscode.CodeLensProvider {
     if (isVueFile) {
       // Ne pas afficher les CodeLens pour les composants si on est dans une page
       if (!isPages) {
+        let hasAddedLens = false;
+
         // 2.1 Pour les composants avec <script setup>
         const scriptSetupRegex = /<script\s+setup[^>]*>/g;
         let match: RegExpExecArray | null;
@@ -123,6 +125,7 @@ class Nuxt3CodeLensProvider implements vscode.CodeLensProvider {
               ]
             })
           );
+          hasAddedLens = true;
         }
 
         // 2.2 Pour les composants avec defineComponent
@@ -149,6 +152,7 @@ class Nuxt3CodeLensProvider implements vscode.CodeLensProvider {
               ]
             })
           );
+          hasAddedLens = true;
         }
 
         // 2.3 Pour les composants Nuxt spécifiques
@@ -175,6 +179,39 @@ class Nuxt3CodeLensProvider implements vscode.CodeLensProvider {
               ]
             })
           );
+          hasAddedLens = true;
+        }
+
+        // 2.4 Si aucune des méthodes ci-dessus n'a trouvé de balise, chercher la balise template
+        if (!hasAddedLens) {
+          const templateRegex = /<template[^>]*>/g;
+          match = templateRegex.exec(text);
+
+          if (match) {
+            const pos = document.positionAt(match.index);
+            const range = new vscode.Range(pos.line, 0, pos.line, 0);
+
+            // Nom du composant basé sur le nom de fichier
+            const componentName = path.basename(document.fileName, '.vue');
+
+            // Rechercher les références, y compris les auto-importations
+            const references = await this.findComponentReferences(document, componentName);
+            const referenceCount = references.length;
+
+            const autoImportInfo = isComponent ? "auto-importé" : "";
+
+            lenses.push(
+              new vscode.CodeLens(range, {
+                title: `🧩 ${referenceCount} utilisation${referenceCount === 1 ? '' : 's'} du composant${autoImportInfo ? ` (${autoImportInfo})` : ''}`,
+                command: 'editor.action.showReferences',
+                arguments: [
+                  document.uri,
+                  pos,
+                  references
+                ]
+              })
+            );
+          }
         }
       }
     }
