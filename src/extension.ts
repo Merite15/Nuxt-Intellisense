@@ -492,15 +492,23 @@ class Nuxt3CodeLensProvider implements vscode.CodeLensProvider {
    * Trouver toutes les références pour un composant
    */
   private getNuxtComponentName(filePath: string, componentsDir: string): string {
-    const relPath = path.relative(componentsDir, filePath).replace(/\.vue$/, '');
+    let relPath = path.relative(componentsDir, filePath).replace(/\.vue$/, '');
+
     const parts = relPath.split(path.sep);
-    // Pour chaque partie (dossier ou nom de fichier), on met en PascalCase
-    return parts.map(part =>
-      part
-        .split('-')
-        .map(w => w.charAt(0).toUpperCase() + w.slice(1))
-        .join('')
-    ).join('');
+
+    if (parts[parts.length - 1].toLowerCase() === 'index') {
+      parts.pop();
+    }
+
+    return parts
+      .filter(Boolean)
+      .map(part =>
+        part
+          .split('-')
+          .map(w => w.charAt(0).toUpperCase() + w.slice(1))
+          .join('')
+      )
+      .join('');
   }
 
   private async findComponentReferences(document: vscode.TextDocument, componentName: string): Promise<vscode.Location[]> {
@@ -547,36 +555,63 @@ class Nuxt3CodeLensProvider implements vscode.CodeLensProvider {
   /**
    * Trouver les références pour un plugin
    */
-  private async findPluginReferences(pluginName: string): Promise<vscode.Location[]> {
-    // Pour les plugins, vérifier principalement le nuxt.config.ts
-    if (!this.nuxtProjectRoot) {
-      return [];
-    }
+  /**
+   * Trouver les références pour un plugin Nuxt injecté par provide
+   * - Cherche tous les usages du nom injecté dans le code utilisateur
+   */
+  private async findPluginReferences(pluginFilePath: string): Promise<vscode.Location[]> {
+    if (!this.nuxtProjectRoot) return [];
 
-    const nuxtConfigPath = path.join(this.nuxtProjectRoot, 'nuxt.config.ts');
-    const nuxtConfigJsPath = path.join(this.nuxtProjectRoot, 'nuxt.config.js');
-
-    const configPath = fs.existsSync(nuxtConfigPath) ? nuxtConfigPath :
-      (fs.existsSync(nuxtConfigJsPath) ? nuxtConfigJsPath : null);
-
-    if (!configPath) {
-      return [];
-    }
-
+    // 1. Trouver le(s) nom(s) injecté(s) dans le plugin via nuxtApp.provide('xxx', ...)
+    let provides: string[] = [];
     try {
-      const content = fs.readFileSync(configPath, 'utf-8');
-      const pluginRegex = new RegExp(`plugins\\s*:\\s*\\[([^\\]]*${pluginName}[^\\]]*)\\]`, 'g');
-
-      if (pluginRegex.test(content)) {
-        const uri = vscode.Uri.file(configPath);
-        const pos = new vscode.Position(0, 0);
-        return [new vscode.Location(uri, pos)];
+      const content = fs.readFileSync(pluginFilePath, 'utf-8');
+      // RegEx pour nuxtApp.provide('api', ...) ou nuxtApp.provide("api", ...)
+      const provideRegex = /nuxtApp\.provide\s*\(\s*['"`]([$\w]+)['"`]/g;
+      let match: RegExpExecArray | null;
+      while ((match = provideRegex.exec(content))) {
+        provides.push(match[1]);
       }
     } catch (e) {
-      // Ignorer les erreurs
+      // ignore
     }
+    if (provides.length === 0) return [];
 
-    return [];
+    // 2. Pour chaque clé injectée, trouver toutes les utilisations dans le projet
+    const allFiles = await this.getFilesRecursively(this.nuxtProjectRoot, ['.vue', '.ts', '.js']);
+    const references: vscode.Location[] = [];
+
+    for (const file of allFiles) {
+      if (file.includes('.nuxt')) continue;
+      try {
+        const fileContent = fs.readFileSync(file, 'utf-8');
+        for (const key of provides) {
+          // Cherche useNuxtApp().$key, const { $key } = useNuxtApp(), nuxtApp.$key, $key(
+          const patterns = [
+            new RegExp(`useNuxtApp\\(\\)\\s*\\.\\s*\\$${key}\\b`, 'g'),
+            new RegExp(`\\{[^}]*\\$${key}[^}]*\\}\\s*=\\s*useNuxtApp\\(\\)`, 'g'),
+            new RegExp(`nuxtApp\\s*\\.\\s*\\$${key}\\b`, 'g'),
+            new RegExp(`\\$${key}\\s*\\(`, 'g'),
+          ];
+          for (const regex of patterns) {
+            let match: RegExpExecArray | null;
+            while ((match = regex.exec(fileContent))) {
+              // Calculer la position exacte
+              const index = match.index;
+              const before = fileContent.slice(0, index);
+              const line = before.split('\n').length - 1;
+              const col = index - before.lastIndexOf('\n') - 1;
+              const uri = vscode.Uri.file(file);
+              const pos = new vscode.Position(line, col);
+              references.push(new vscode.Location(uri, pos));
+            }
+          }
+        }
+      } catch (e) {
+        // ignore
+      }
+    }
+    return references;
   }
 
   /**
@@ -588,8 +623,6 @@ class Nuxt3CodeLensProvider implements vscode.CodeLensProvider {
     }
 
     const references: vscode.Location[] = [];
-
-    // Rechercher dans les fichiers de pages
     const pagesDir = path.join(this.nuxtProjectRoot, 'pages');
     if (fs.existsSync(pagesDir)) {
       const pageFiles = await this.getFilesRecursively(pagesDir, ['.vue']);
@@ -598,16 +631,23 @@ class Nuxt3CodeLensProvider implements vscode.CodeLensProvider {
         try {
           const content = fs.readFileSync(pageFile, 'utf-8');
 
-          // Vérifier les utilisations definePageMeta({ middleware: ['middlewareName'] })
-          const middlewareRegex = new RegExp(`definePageMeta\\s*\\(\\s*\\{[^}]*middleware\\s*:\\s*\\[?[^\\]]*['"]${middlewareName}['"][^\\]]*\\]?`, 'g');
-
-          if (middlewareRegex.test(content)) {
+          const regex = new RegExp(
+            `middleware\\s*:\\s*(\\[([^\\]]*['"\`]${middlewareName}['"\`][^\\]]*)\\]|['"\`]${middlewareName}['"\`])`,
+            'g'
+          );
+          let match: RegExpExecArray | null;
+          while ((match = regex.exec(content))) {
+            // Trouver la position exacte dans le fichier
+            const index = match.index;
+            const before = content.slice(0, index);
+            const line = before.split('\n').length - 1;
+            const col = index - before.lastIndexOf('\n') - 1;
             const uri = vscode.Uri.file(pageFile);
-            const pos = new vscode.Position(0, 0);
+            const pos = new vscode.Position(line, col);
             references.push(new vscode.Location(uri, pos));
           }
         } catch (e) {
-          // Ignorer les erreurs
+          // ignore
         }
       }
     }
