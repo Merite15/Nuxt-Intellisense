@@ -401,17 +401,18 @@ class Nuxt3CodeLensProvider implements vscode.CodeLensProvider {
     if (!fs.existsSync(dir)) {
       return;
     }
-
     const composableInfos: NuxtComponentInfo[] = [];
     const files = await this.getFilesRecursively(dir, ['.ts', '.js']);
-
     for (const file of files) {
       // Lire le fichier pour trouver les fonctions exportées
       try {
         const content = fs.readFileSync(file, 'utf-8');
+        // Vérifier si le fichier contient une définition de store Pinia
+        if (content.includes('defineStore')) {
+          continue; // Ignorer les fichiers qui définissent des stores
+        }
         const exportRegex = /export\s+(const|function|async function)\s+(\w+)/g;
         let match: RegExpExecArray | null;
-
         while ((match = exportRegex.exec(content))) {
           const name = match[2];
           composableInfos.push({
@@ -424,7 +425,6 @@ class Nuxt3CodeLensProvider implements vscode.CodeLensProvider {
         // Ignorer les erreurs de lecture
       }
     }
-
     this.autoImportCache.set('composables', composableInfos);
   }
 
@@ -466,13 +466,28 @@ class Nuxt3CodeLensProvider implements vscode.CodeLensProvider {
         new vscode.Position(position.line, position.character + name.length - 1)
       ) || [];
 
+      // Filtrer les fichiers générés par Nuxt
+      const filteredReferences = references.filter(ref => !ref.uri.fsPath.includes('.nuxt'));
+
       // Si nous avons un projet Nuxt, rechercher les auto-importations
       if (this.nuxtProjectRoot) {
         const autoImportRefs = await this.findAutoImportReferences(name, 'composable');
-        references.push(...autoImportRefs);
+        filteredReferences.push(...autoImportRefs);
+
+        // Filtrer pour exclure les stores Pinia
+        filteredReferences.forEach(ref => {
+          try {
+            const content = fs.readFileSync(ref.uri.fsPath, 'utf-8');
+            if (content.includes(`defineStore('${name}'`) || content.includes(`defineStore("${name}"`)) {
+              filteredReferences.splice(filteredReferences.indexOf(ref), 1);
+            }
+          } catch (e) {
+            // Ignorer les erreurs
+          }
+        });
       }
 
-      return references;
+      return filteredReferences;
     } catch (e) {
       return [];
     }
@@ -491,18 +506,21 @@ class Nuxt3CodeLensProvider implements vscode.CodeLensProvider {
         pos
       ) || [];
 
+      // Filtrer les fichiers générés par Nuxt
+      const filteredReferences = references.filter(ref => !ref.uri.fsPath.includes('.nuxt'));
+
       // Si nous avons un projet Nuxt, rechercher les auto-importations
       if (this.nuxtProjectRoot) {
         // Chercher les utilisations comme balises HTML (ex: <MyComponent />)
         const tagReferences = await this.findTagReferences(componentName);
-        references.push(...tagReferences);
+        filteredReferences.push(...tagReferences);
 
         // Chercher les auto-importations
         const autoImportRefs = await this.findAutoImportReferences(componentName, 'component');
-        references.push(...autoImportRefs);
+        filteredReferences.push(...autoImportRefs);
       }
 
-      return references;
+      return filteredReferences;
     } catch (e) {
       return [];
     }
@@ -628,10 +646,9 @@ class Nuxt3CodeLensProvider implements vscode.CodeLensProvider {
    */
   private async findStoreReferences(storeName: string): Promise<vscode.Location[]> {
     try {
-      // Rechercher dans tous les fichiers du projet
-      const searchTerm = `use${storeName.charAt(0).toUpperCase() + storeName.slice(1)}`;
       const references: vscode.Location[] = [];
-
+      // Construire le terme de recherche
+      const searchTerm = `use${storeName.charAt(0).toUpperCase() + storeName.slice(1)}`;
       // Utiliser la recherche globale de VS Code
       const searchResults = await vscode.commands.executeCommand<vscode.SymbolInformation[]>(
         'vscode.executeWorkspaceSymbolProvider',
@@ -639,7 +656,15 @@ class Nuxt3CodeLensProvider implements vscode.CodeLensProvider {
       );
 
       for (const file of searchResults.values()) {
-        references.push(new vscode.Location(file.location.uri, file.location.range));
+        try {
+          const content = fs.readFileSync(file.location.uri.fsPath, 'utf-8');
+          // Vérifier que le fichier contient une définition de store
+          if (content.includes(`defineStore('${storeName}'`) || content.includes(`defineStore("${storeName}"`)) {
+            references.push(new vscode.Location(file.location.uri, file.location.range));
+          }
+        } catch (e) {
+          // Ignorer les erreurs
+        }
       }
 
       return references;
@@ -691,12 +716,10 @@ class Nuxt3CodeLensProvider implements vscode.CodeLensProvider {
     try {
       const references: vscode.Location[] = [];
 
-      // Si c'est un composant, rechercher à la fois en kebab-case et PascalCase
       if (type === 'component') {
+        // Pour les composants, chercher les balises HTML
         const kebabCaseName = this.pascalToKebabCase(name);
         const pascalCaseName = this.kebabToPascalCase(name);
-
-        // Chercher les balises (ex: <MonComposant>)
         const searchPatterns = [
           `<${kebabCaseName}\\s`,
           `<${kebabCaseName}>`,
@@ -709,20 +732,28 @@ class Nuxt3CodeLensProvider implements vscode.CodeLensProvider {
             'vscode.executeWorkspaceSymbolProvider',
             pattern
           );
-
           for (const file of searchResults.values()) {
             references.push(file.location);
           }
         }
-      }
-      // Si c'est un composable, rechercher directement le nom
-      else if (type === 'composable') {
+      } else if (type === 'composable') {
+        // Pour les composables, rechercher uniquement les exports de fonctions
         const searchResults = await vscode.commands.executeCommand<vscode.Location[]>(
           'vscode.executeWorkspaceSymbolProvider',
           name
         ) || [];
 
-        for (const file of searchResults.values()) {
+        // Filtrer pour ne conserver que les fichiers contenant des exports de fonctions
+        const filteredResults = searchResults.filter(ref => {
+          try {
+            const content = fs.readFileSync(ref.uri.fsPath, 'utf-8');
+            return content.includes(`export function ${name}`) || content.includes(`export const ${name}`);
+          } catch (e) {
+            return false;
+          }
+        });
+
+        for (const file of filteredResults) {
           references.push(file);
         }
       }
