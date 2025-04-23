@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import * as fs from 'fs';
+import { error } from 'console';
 
 export function activate(context: vscode.ExtensionContext) {
   // Enregistrer le fournisseur de CodeLens
@@ -490,49 +491,57 @@ class Nuxt3CodeLensProvider implements vscode.CodeLensProvider {
   /**
    * Trouver toutes les références pour un composant
    */
+  private getNuxtComponentName(filePath: string, componentsDir: string): string {
+    const relPath = path.relative(componentsDir, filePath).replace(/\.vue$/, '');
+    const parts = relPath.split(path.sep);
+    // Pour chaque partie (dossier ou nom de fichier), on met en PascalCase
+    return parts.map(part =>
+      part
+        .split('-')
+        .map(w => w.charAt(0).toUpperCase() + w.slice(1))
+        .join('')
+    ).join('');
+  }
+
   private async findComponentReferences(document: vscode.TextDocument, componentName: string): Promise<vscode.Location[]> {
-    try {
-      // Recherche standard des références via VS Code
-      const pos = new vscode.Position(0, 0);
-      const references = await vscode.commands.executeCommand<vscode.Location[]>(
-        'vscode.executeReferenceProvider',
-        document.uri,
-        pos
-      ) || [];
+    if (!this.nuxtProjectRoot) return [];
 
-      // Filtrer les fichiers générés par Nuxt, app.vue et error.vue
-      const filteredReferences = references.filter(ref => {
-        const fileName = path.basename(ref.uri.fsPath);
-        return !ref.uri.fsPath.includes('.nuxt') &&
-          fileName !== 'app.vue' &&
-          fileName !== 'error.vue';
-      });
+    error(componentName)
 
-      // Si nous avons un projet Nuxt, rechercher les auto-importations
-      if (this.nuxtProjectRoot) {
-        // Chercher les utilisations comme balises HTML (ex: <MyComponent />)
-        const tagReferences = await this.findTagReferences(componentName);
-        // Filtrer pour supprimer app.vue et error.vue
-        const filteredTagReferences = tagReferences.filter(ref => {
-          const fileName = path.basename(ref.uri.fsPath);
-          return fileName !== 'app.vue' && fileName !== 'error.vue';
-        });
-        filteredReferences.push(...filteredTagReferences);
+    const componentsDir = path.join(this.nuxtProjectRoot, 'components');
+    const filePath = document.uri.fsPath;
+    const nuxtComponentName = this.getNuxtComponentName(filePath, componentsDir);
 
-        // Chercher les auto-importations
-        const autoImportRefs = await this.findAutoImportReferences(componentName, 'component');
-        // Filtrer pour supprimer app.vue et error.vue
-        const filteredAutoImportRefs = autoImportRefs.filter(ref => {
-          const fileName = path.basename(ref.uri.fsPath);
-          return fileName !== 'app.vue' && fileName !== 'error.vue';
-        });
-        filteredReferences.push(...filteredAutoImportRefs);
+    const allFiles = await this.getFilesRecursively(this.nuxtProjectRoot, ['.vue', '.ts', '.js']);
+    const references: vscode.Location[] = [];
+
+    for (const file of allFiles) {
+      // Exclure les fichiers .nuxt, app.vue et error.vue
+      if (
+        file.includes('.nuxt') ||
+        path.basename(file) === 'app.vue' ||
+        path.basename(file) === 'error.vue'
+      ) continue;
+
+      try {
+        const content = fs.readFileSync(file, 'utf-8');
+        // Cherche le nom du composant sous forme de balise <ExampleTest ...> ou <example-test ...>
+        const kebab = this.pascalToKebabCase(nuxtComponentName);
+        const searchPatterns = [
+          new RegExp(`<${nuxtComponentName}\\b`, 'g'),
+          new RegExp(`<${kebab}\\b`, 'g')
+        ];
+        if (searchPatterns.some(r => r.test(content))) {
+          const uri = vscode.Uri.file(file);
+          const pos = new vscode.Position(0, 0);
+          references.push(new vscode.Location(uri, pos));
+        }
+      } catch (e) {
+        // ignore
       }
-
-      return filteredReferences;
-    } catch (e) {
-      return [];
     }
+
+    return references;
   }
 
   /**
