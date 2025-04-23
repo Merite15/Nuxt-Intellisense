@@ -505,14 +505,27 @@ class Nuxt3CodeLensProvider implements vscode.CodeLensProvider {
           try {
             const content = fs.readFileSync(file, 'utf-8');
 
-            // Chercher les utilisations du composable
-            // Ajouter une expression régulière plus précise pour trouver les utilisations
-            const usage = new RegExp(`\\b${name}\\s*\\(`, 'g');
+            // Chercher les utilisations du composable avec surlignage précis
+            const usageRegex = new RegExp(`\\b(${name}\\s*\\()`, 'g');
+            let match: RegExpExecArray | null;
 
-            if (usage.test(content)) {
+            while ((match = usageRegex.exec(content))) {
+              const matchText = match[1];
+              const index = match.index;
+              const before = content.slice(0, index);
+              const line = before.split('\n').length - 1;
+
+              // Calculer la colonne exacte
+              const lineStartIndex = before.lastIndexOf('\n') + 1;
+              const col = index - lineStartIndex;
+
               const uri = vscode.Uri.file(file);
-              const pos = new vscode.Position(0, 0);
-              filteredReferences.push(new vscode.Location(uri, pos));
+              const range = new vscode.Range(
+                new vscode.Position(line, col),
+                new vscode.Position(line, col + matchText.length)
+              );
+
+              filteredReferences.push(new vscode.Location(uri, range));
             }
           } catch (e) {
             // Ignorer les erreurs
@@ -525,6 +538,7 @@ class Nuxt3CodeLensProvider implements vscode.CodeLensProvider {
       return [];
     }
   }
+
   /**
    * Trouver toutes les références pour un composant
    */
@@ -548,10 +562,13 @@ class Nuxt3CodeLensProvider implements vscode.CodeLensProvider {
       .join('');
   }
 
+  /**
+ * Trouver toutes les références pour un composant avec surlignage précis
+ */
   private async findComponentReferences(document: vscode.TextDocument, componentName: string): Promise<vscode.Location[]> {
     if (!this.nuxtProjectRoot) return [];
 
-    error(componentName)
+    console.log(componentName);
 
     const componentsDir = path.join(this.nuxtProjectRoot, 'components');
     const filePath = document.uri.fsPath;
@@ -570,16 +587,36 @@ class Nuxt3CodeLensProvider implements vscode.CodeLensProvider {
 
       try {
         const content = fs.readFileSync(file, 'utf-8');
+
         // Cherche le nom du composant sous forme de balise <ExampleTest ...> ou <example-test ...>
         const kebab = this.pascalToKebabCase(nuxtComponentName);
         const searchPatterns = [
-          new RegExp(`<${nuxtComponentName}\\b`, 'g'),
-          new RegExp(`<${kebab}\\b`, 'g')
+          new RegExp(`<${nuxtComponentName}[\\s>]`, 'g'),
+          new RegExp(`<${kebab}[\\s>]`, 'g')
         ];
-        if (searchPatterns.some(r => r.test(content))) {
-          const uri = vscode.Uri.file(file);
-          const pos = new vscode.Position(0, 0);
-          references.push(new vscode.Location(uri, pos));
+
+        for (const regex of searchPatterns) {
+          let match: RegExpExecArray | null;
+          while ((match = regex.exec(content))) {
+            // Calculer la position exacte pour le surlignage
+            const matchText = match[0];
+            const index = match.index;
+            const before = content.slice(0, index);
+            const line = before.split('\n').length - 1;
+
+            // Calculer la colonne de début
+            const lineStartIndex = before.lastIndexOf('\n') + 1;
+            const col = index - lineStartIndex;
+
+            // Créer une plage qui surligne précisément le composant
+            const uri = vscode.Uri.file(file);
+            const range = new vscode.Range(
+              new vscode.Position(line, col),
+              new vscode.Position(line, col + matchText.length)
+            );
+
+            references.push(new vscode.Location(uri, range));
+          }
         }
       } catch (e) {
         // ignore
@@ -754,11 +791,48 @@ class Nuxt3CodeLensProvider implements vscode.CodeLensProvider {
           try {
             const content = fs.readFileSync(file, 'utf-8');
 
-            // Chercher des utilisations du store
-            if (content.includes(storeHookName)) {
+            // Chercher des utilisations du store avec surlignage précis
+            const storeRegex = new RegExp(`(${storeHookName}\\s*\\()`, 'g');
+            let match: RegExpExecArray | null;
+
+            while ((match = storeRegex.exec(content))) {
+              const matchText = match[1];
+              const index = match.index;
+              const before = content.slice(0, index);
+              const line = before.split('\n').length - 1;
+
+              // Calculer la colonne exacte
+              const lineStartIndex = before.lastIndexOf('\n') + 1;
+              const col = index - lineStartIndex;
+
               const uri = vscode.Uri.file(file);
-              const pos = new vscode.Position(0, 0);
-              references.push(new vscode.Location(uri, pos));
+              const range = new vscode.Range(
+                new vscode.Position(line, col),
+                new vscode.Position(line, col + matchText.length)
+              );
+
+              references.push(new vscode.Location(uri, range));
+            }
+
+            // Chercher également les destructurations: const { x } = useStore()
+            const destructureRegex = new RegExp(`const\\s+\\{[^}]*\\}\\s*=\\s*(${storeHookName}\\s*\\()`, 'g');
+            while ((match = destructureRegex.exec(content))) {
+              const matchText = match[1];
+              const index = match.index + match[0].indexOf(storeHookName);
+              const before = content.slice(0, index);
+              const line = before.split('\n').length - 1;
+
+              // Calculer la colonne exacte
+              const lineStartIndex = before.lastIndexOf('\n') + 1;
+              const col = index - lineStartIndex;
+
+              const uri = vscode.Uri.file(file);
+              const range = new vscode.Range(
+                new vscode.Position(line, col),
+                new vscode.Position(line, col + matchText.length)
+              );
+
+              references.push(new vscode.Location(uri, range));
             }
           } catch (e) {
             // Ignorer les erreurs
