@@ -1,7 +1,6 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import * as fs from 'fs';
-import { error } from 'console';
 
 export function activate(context: vscode.ExtensionContext) {
   // Enregistrer le fournisseur de CodeLens
@@ -387,12 +386,19 @@ class Nuxt3CodeLensProvider implements vscode.CodeLensProvider {
     this.autoImportCache.clear();
 
     // Analyser les composants
-    const componentsDir = path.join(this.nuxtProjectRoot, 'components');
-    await this.scanComponentsDirectory(componentsDir);
+    const componentDirs = await this.findAllDirsByName('components');
+
+    for (const dir of componentDirs) {
+      await this.scanComponentsDirectory(dir);
+    }
 
     // Analyser les composables
-    const composablesDir = path.join(this.nuxtProjectRoot, 'composables');
-    await this.scanComposablesDirectory(composablesDir);
+    const composablesDirs = await this.findAllDirsByName('composables');
+
+    for (const dir of composablesDirs) {
+      await this.scanComponentsDirectory(dir);
+    }
+
   }
 
   /**
@@ -565,20 +571,77 @@ class Nuxt3CodeLensProvider implements vscode.CodeLensProvider {
   /**
  * Trouver toutes les références pour un composant avec surlignage précis
  */
+  private async findAllDirsByName(dirName: string): Promise<string[]> {
+    const dirs: string[] = [];
+
+    if (!this.nuxtProjectRoot) return dirs;
+
+    const recurse = (dir: string) => {
+      const entries = fs.readdirSync(dir, { withFileTypes: true });
+
+      for (const entry of entries) {
+        const fullPath = path.join(dir, entry.name);
+        if (entry.isDirectory()) {
+          if (entry.name === dirName) {
+            dirs.push(fullPath);
+          }
+          recurse(fullPath); // continuer la récursion
+        }
+      }
+    };
+
+    recurse(this.nuxtProjectRoot);
+    return dirs;
+  }
+
+
+  private async findAllComponentsDirs(): Promise<string[]> {
+    const dirs: string[] = [];
+
+    if (!this.nuxtProjectRoot) return dirs;
+
+    const recurse = (dir: string) => {
+      const entries = fs.readdirSync(dir, { withFileTypes: true });
+
+      for (const entry of entries) {
+        const fullPath = path.join(dir, entry.name);
+        if (entry.isDirectory()) {
+          if (entry.name === 'components') {
+            dirs.push(fullPath);
+          }
+          // Continue to scan subdirectories
+          recurse(fullPath);
+        }
+      }
+    };
+
+    recurse(this.nuxtProjectRoot);
+    return dirs;
+  }
+
+
   private async findComponentReferences(document: vscode.TextDocument, componentName: string): Promise<vscode.Location[]> {
     if (!this.nuxtProjectRoot) return [];
 
     console.log(componentName);
 
-    const componentsDir = path.join(this.nuxtProjectRoot, 'components');
+    const allComponentDirs = await this.findAllComponentsDirs();
     const filePath = document.uri.fsPath;
-    const nuxtComponentName = this.getNuxtComponentName(filePath, componentsDir);
+
+    let nuxtComponentName = '';
+    for (const dir of allComponentDirs) {
+      if (filePath.startsWith(dir)) {
+        nuxtComponentName = this.getNuxtComponentName(filePath, dir);
+        break;
+      }
+    }
+
+    if (!nuxtComponentName) return [];
 
     const allFiles = await this.getFilesRecursively(this.nuxtProjectRoot, ['.vue', '.ts', '.js']);
     const references: vscode.Location[] = [];
 
     for (const file of allFiles) {
-      // Exclure les fichiers .nuxt, app.vue et error.vue
       if (
         file.includes('.nuxt') ||
         path.basename(file) === 'app.vue' ||
@@ -587,8 +650,6 @@ class Nuxt3CodeLensProvider implements vscode.CodeLensProvider {
 
       try {
         const content = fs.readFileSync(file, 'utf-8');
-
-        // Cherche le nom du composant sous forme de balise <ExampleTest ...> ou <example-test ...>
         const kebab = this.pascalToKebabCase(nuxtComponentName);
         const searchPatterns = [
           new RegExp(`<${nuxtComponentName}[\\s>]`, 'g'),
@@ -598,21 +659,16 @@ class Nuxt3CodeLensProvider implements vscode.CodeLensProvider {
         for (const regex of searchPatterns) {
           let match: RegExpExecArray | null;
           while ((match = regex.exec(content))) {
-            // Calculer la position exacte pour le surlignage
-            const matchText = match[0];
             const index = match.index;
             const before = content.slice(0, index);
             const line = before.split('\n').length - 1;
-
-            // Calculer la colonne de début
             const lineStartIndex = before.lastIndexOf('\n') + 1;
             const col = index - lineStartIndex;
 
-            // Créer une plage qui surligne précisément le composant
             const uri = vscode.Uri.file(file);
             const range = new vscode.Range(
               new vscode.Position(line, col),
-              new vscode.Position(line, col + matchText.length)
+              new vscode.Position(line, col + match[0].length)
             );
 
             references.push(new vscode.Location(uri, range));
@@ -625,6 +681,7 @@ class Nuxt3CodeLensProvider implements vscode.CodeLensProvider {
 
     return references;
   }
+
 
   /**
    * Trouver les références pour un plugin
