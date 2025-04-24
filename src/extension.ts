@@ -598,21 +598,40 @@ class Nuxt3CodeLensProvider implements vscode.CodeLensProvider {
 
     if (!this.nuxtProjectRoot) return dirs;
 
-    const recurse = (dir: string) => {
-      const entries = fs.readdirSync(dir, { withFileTypes: true });
+    // Directories to check initially - including Nuxt 3 standard and Nuxt 4 compatibility mode
+    const initialDirs = [
+      this.nuxtProjectRoot,
+      path.join(this.nuxtProjectRoot, 'app'),
+      path.join(this.nuxtProjectRoot, 'app', 'base'),
+      // Add other potential layer directories
+      path.join(this.nuxtProjectRoot, 'app', 'modules')
+    ].filter(dir => fs.existsSync(dir));
 
-      for (const entry of entries) {
-        const fullPath = path.join(dir, entry.name);
-        if (entry.isDirectory()) {
-          if (entry.name === dirName) {
-            dirs.push(fullPath);
+    for (const initialDir of initialDirs) {
+      const recurse = (dir: string) => {
+        try {
+          const entries = fs.readdirSync(dir, { withFileTypes: true });
+
+          for (const entry of entries) {
+            const fullPath = path.join(dir, entry.name);
+            if (entry.isDirectory()) {
+              if (entry.name === dirName) {
+                dirs.push(fullPath);
+              }
+              // Don't recurse into node_modules
+              if (entry.name !== 'node_modules' && entry.name !== '.nuxt' && entry.name !== '.output') {
+                recurse(fullPath); // continuer la récursion
+              }
+            }
           }
-          recurse(fullPath); // continuer la récursion
+        } catch (e) {
+          // Ignore errors for directories that can't be read
         }
-      }
-    };
+      };
 
-    recurse(this.nuxtProjectRoot);
+      recurse(initialDir);
+    }
+
     return dirs;
   }
 
@@ -719,18 +738,37 @@ class Nuxt3CodeLensProvider implements vscode.CodeLensProvider {
     if (!this.nuxtProjectRoot) return [];
 
     const references: vscode.Location[] = [];
-    const pluginPath = path.join(this.nuxtProjectRoot, 'plugins', `${pluginName}.ts`);
-    const pluginJsPath = path.join(this.nuxtProjectRoot, 'plugins', `${pluginName}.js`);
+
+    // Get all plugin directories
+    const pluginDirs = await this.findAllDirsByName('plugins');
+    let pluginPath = '';
+    let pluginContent = '';
+
+    // Try to find the plugin file in all plugin directories
+    for (const dir of pluginDirs) {
+      const possiblePaths = [
+        path.join(dir, `${pluginName}.ts`),
+        path.join(dir, `${pluginName}.js`)
+      ];
+
+      for (const filePath of possiblePaths) {
+        if (fs.existsSync(filePath)) {
+          pluginPath = filePath;
+          pluginContent = fs.readFileSync(filePath, 'utf-8');
+          break;
+        }
+      }
+
+      if (pluginPath) break;
+    }
+
+    if (!pluginPath) return references;
 
     let provides: string[] = [];
     let hasDirectives: boolean = false;
     let directives: string[] = [];
 
     try {
-      const pluginContent = fs.existsSync(pluginPath) ?
-        fs.readFileSync(pluginPath, 'utf-8') :
-        fs.readFileSync(pluginJsPath, 'utf-8');
-
       // 1. Détection classique via nuxtApp.provide('key', ...)
       const provideRegex = /nuxtApp\.provide\s*\(\s*['"`]([$\w]+)['"`]/g;
       let match: RegExpExecArray | null;
@@ -771,7 +809,7 @@ class Nuxt3CodeLensProvider implements vscode.CodeLensProvider {
     const allFiles = await this.getFilesRecursively(this.nuxtProjectRoot, ['.vue', '.ts', '.js']);
 
     for (const file of allFiles) {
-      if (file.includes('.nuxt') || file === pluginPath || file === pluginJsPath) continue;
+      if (file.includes('.nuxt') || file === pluginPath || file === pluginPath) continue;
 
       try {
         const fileContent = fs.readFileSync(file, 'utf-8');
@@ -867,69 +905,73 @@ class Nuxt3CodeLensProvider implements vscode.CodeLensProvider {
     }
 
     const references: vscode.Location[] = [];
-    const pagesDir = path.join(this.nuxtProjectRoot, 'pages');
 
-    if (fs.existsSync(pagesDir)) {
-      const pageFiles = await this.getFilesRecursively(pagesDir, ['.vue']);
+    // Get all pages directories - supporting both structures
+    const pagesDirs = await this.findAllDirsByName('pages');
 
-      for (const pageFile of pageFiles) {
-        try {
-          const content = fs.readFileSync(pageFile, 'utf-8');
-          const definePageMetaRegex = /definePageMeta\s*\(\s*\{[^}]*\}/g;
+    for (const pagesDir of pagesDirs) {
+      if (fs.existsSync(pagesDir)) {
+        const pageFiles = await this.getFilesRecursively(pagesDir, ['.vue']);
 
-          let metaMatch;
-          while ((metaMatch = definePageMetaRegex.exec(content)) !== null) {
-            const metaContent = metaMatch[0];
-            const metaStartIndex = metaMatch.index;
+        for (const pageFile of pageFiles) {
+          try {
+            const content = fs.readFileSync(pageFile, 'utf-8');
+            const definePageMetaRegex = /definePageMeta\s*\(\s*\{[^}]*\}/g;
 
-            // Case 1: middleware as single string - middleware: 'chat'
-            const singleMiddlewareRegex = /middleware\s*:\s*(['"`])([^'"`]*)\1/g;
-            let singleMatch;
+            let metaMatch;
+            while ((metaMatch = definePageMetaRegex.exec(content)) !== null) {
+              const metaContent = metaMatch[0];
+              const metaStartIndex = metaMatch.index;
 
-            while ((singleMatch = singleMiddlewareRegex.exec(metaContent)) !== null) {
-              const foundMiddleware = singleMatch[2];
-              if (foundMiddleware === middlewareName) {
-                // Calculate exact position for highlighting
-                const middlewareValueIndex = metaContent.indexOf(singleMatch[1] + middlewareName + singleMatch[1], singleMatch.index);
-                const exactIndex = metaStartIndex + middlewareValueIndex + 1; // +1 to skip the opening quote
+              // Case 1: middleware as single string - middleware: 'chat'
+              const singleMiddlewareRegex = /middleware\s*:\s*(['"`])([^'"`]*)\1/g;
+              let singleMatch;
 
-                const before = content.slice(0, exactIndex);
-                const line = before.split('\n').length - 1;
-                const col = exactIndex - before.lastIndexOf('\n') - 1;
+              while ((singleMatch = singleMiddlewareRegex.exec(metaContent)) !== null) {
+                const foundMiddleware = singleMatch[2];
+                if (foundMiddleware === middlewareName) {
+                  // Calculate exact position for highlighting
+                  const middlewareValueIndex = metaContent.indexOf(singleMatch[1] + middlewareName + singleMatch[1], singleMatch.index);
+                  const exactIndex = metaStartIndex + middlewareValueIndex + 1; // +1 to skip the opening quote
 
-                const uri = vscode.Uri.file(pageFile);
-                const range = new vscode.Range(line, col, line, col + middlewareName.length);
-                references.push(new vscode.Location(uri, range));
+                  const before = content.slice(0, exactIndex);
+                  const line = before.split('\n').length - 1;
+                  const col = exactIndex - before.lastIndexOf('\n') - 1;
+
+                  const uri = vscode.Uri.file(pageFile);
+                  const range = new vscode.Range(line, col, line, col + middlewareName.length);
+                  references.push(new vscode.Location(uri, range));
+                }
+              }
+
+              // Case 2: middleware as array - middleware: ['mobile-only', 'chat']
+              const arrayMiddlewareRegex = /middleware\s*:\s*\[([^\]]*)\]/g;
+              let arrayMatch;
+
+              while ((arrayMatch = arrayMiddlewareRegex.exec(metaContent)) !== null) {
+                const arrayContent = arrayMatch[1];
+                const itemRegex = new RegExp(`(['"\`])(${middlewareName})\\1`, 'g');
+                let itemMatch;
+
+                while ((itemMatch = itemRegex.exec(arrayContent)) !== null) {
+                  // Calculate the exact position within the array
+                  const arrayStartIndex = metaContent.indexOf(arrayContent, arrayMatch.index);
+                  const middlewareInArrayIndex = arrayContent.indexOf(itemMatch[0]);
+                  const exactIndex = metaStartIndex + arrayStartIndex + middlewareInArrayIndex + 1; // +1 to skip the opening quote
+
+                  const before = content.slice(0, exactIndex);
+                  const line = before.split('\n').length - 1;
+                  const col = exactIndex - before.lastIndexOf('\n') - 1;
+
+                  const uri = vscode.Uri.file(pageFile);
+                  const range = new vscode.Range(line, col, line, col + middlewareName.length);
+                  references.push(new vscode.Location(uri, range));
+                }
               }
             }
-
-            // Case 2: middleware as array - middleware: ['mobile-only', 'chat']
-            const arrayMiddlewareRegex = /middleware\s*:\s*\[([^\]]*)\]/g;
-            let arrayMatch;
-
-            while ((arrayMatch = arrayMiddlewareRegex.exec(metaContent)) !== null) {
-              const arrayContent = arrayMatch[1];
-              const itemRegex = new RegExp(`(['"\`])(${middlewareName})\\1`, 'g');
-              let itemMatch;
-
-              while ((itemMatch = itemRegex.exec(arrayContent)) !== null) {
-                // Calculate the exact position within the array
-                const arrayStartIndex = metaContent.indexOf(arrayContent, arrayMatch.index);
-                const middlewareInArrayIndex = arrayContent.indexOf(itemMatch[0]);
-                const exactIndex = metaStartIndex + arrayStartIndex + middlewareInArrayIndex + 1; // +1 to skip the opening quote
-
-                const before = content.slice(0, exactIndex);
-                const line = before.split('\n').length - 1;
-                const col = exactIndex - before.lastIndexOf('\n') - 1;
-
-                const uri = vscode.Uri.file(pageFile);
-                const range = new vscode.Range(line, col, line, col + middlewareName.length);
-                references.push(new vscode.Location(uri, range));
-              }
-            }
+          } catch (e) {
+            // Ignore errors
           }
-        } catch (e) {
-          // Ignore errors
         }
       }
     }
@@ -947,48 +989,57 @@ class Nuxt3CodeLensProvider implements vscode.CodeLensProvider {
 
     const references: vscode.Location[] = [];
 
-    // Search in page files
-    const pagesDir = path.join(this.nuxtProjectRoot, 'pages');
-    if (fs.existsSync(pagesDir)) {
-      const pageFiles = await this.getFilesRecursively(pagesDir, ['.vue']);
+    // Search in page files across all possible page directories
+    const pagesDirs = await this.findAllDirsByName('pages');
 
-      for (const pageFile of pageFiles) {
-        try {
-          const content = fs.readFileSync(pageFile, 'utf-8');
+    for (const pagesDir of pagesDirs) {
+      if (fs.existsSync(pagesDir)) {
+        const pageFiles = await this.getFilesRecursively(pagesDir, ['.vue']);
 
-          // Look for definePageMeta with layout property
-          const layoutRegex = /definePageMeta\s*\(\s*\{[^}]*layout\s*:\s*(['"`])([^'"`]*)\1/g;
-          let match;
+        for (const pageFile of pageFiles) {
+          try {
+            const content = fs.readFileSync(pageFile, 'utf-8');
 
-          while ((match = layoutRegex.exec(content)) !== null) {
-            const foundLayoutName = match[2];
-            if (foundLayoutName === layoutName) {
-              // Calculate the exact position of the layout name for highlighting
-              const fullMatch = match[0];
-              const layoutValueIndex = fullMatch.lastIndexOf(match[1] + layoutName + match[1]);
-              const exactIndex = match.index + layoutValueIndex + 1; // +1 to skip the opening quote
+            // Look for definePageMeta with layout property
+            const layoutRegex = /definePageMeta\s*\(\s*\{[^}]*layout\s*:\s*(['"`])([^'"`]*)\1/g;
+            let match;
 
-              const before = content.slice(0, exactIndex);
-              const line = before.split('\n').length - 1;
-              const col = exactIndex - before.lastIndexOf('\n') - 1;
+            while ((match = layoutRegex.exec(content)) !== null) {
+              const foundLayoutName = match[2];
+              if (foundLayoutName === layoutName) {
+                // Calculate the exact position of the layout name for highlighting
+                const fullMatch = match[0];
+                const layoutValueIndex = fullMatch.lastIndexOf(match[1] + layoutName + match[1]);
+                const exactIndex = match.index + layoutValueIndex + 1; // +1 to skip the opening quote
 
-              const uri = vscode.Uri.file(pageFile);
-              const range = new vscode.Range(line, col, line, col + layoutName.length);
-              references.push(new vscode.Location(uri, range));
+                const before = content.slice(0, exactIndex);
+                const line = before.split('\n').length - 1;
+                const col = exactIndex - before.lastIndexOf('\n') - 1;
+
+                const uri = vscode.Uri.file(pageFile);
+                const range = new vscode.Range(line, col, line, col + layoutName.length);
+                references.push(new vscode.Location(uri, range));
+              }
             }
+          } catch (e) {
+            // Ignore errors
           }
-        } catch (e) {
-          // Ignore errors
         }
       }
     }
 
-    // Check app.vue for default layout
-    const appVuePath = path.join(this.nuxtProjectRoot, 'app.vue');
-    if (fs.existsSync(appVuePath) && layoutName === 'default') {
-      const uri = vscode.Uri.file(appVuePath);
-      const pos = new vscode.Position(0, 0);
-      references.push(new vscode.Location(uri, pos));
+    // Check app.vue for default layout in possible locations
+    const possibleAppVuePaths = [
+      path.join(this.nuxtProjectRoot, 'app.vue'),
+      path.join(this.nuxtProjectRoot, 'app', 'app.vue')
+    ];
+
+    for (const appVuePath of possibleAppVuePaths) {
+      if (fs.existsSync(appVuePath) && layoutName === 'default') {
+        const uri = vscode.Uri.file(appVuePath);
+        const pos = new vscode.Position(0, 0);
+        references.push(new vscode.Location(uri, pos));
+      }
     }
 
     return references;
