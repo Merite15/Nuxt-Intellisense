@@ -263,21 +263,33 @@ class Nuxt3CodeLensProvider implements vscode.CodeLensProvider {
         // Nom du middleware basé sur le nom de fichier
         const middlewareName = path.basename(document.fileName, path.extname(document.fileName));
 
-        // Rechercher les références
-        const references = await this.findMiddlewareReferences(middlewareName);
-        const referenceCount = references.length;
+        // Vérifier si c'est un middleware global
+        const isGlobal = document.fileName.includes('.global.');
 
-        lenses.push(
-          new vscode.CodeLens(range, {
-            title: `🔗 ${referenceCount} utilisation${referenceCount === 1 ? '' : 's'} du middleware`,
-            command: 'editor.action.showReferences',
-            arguments: [
-              document.uri,
-              pos,
-              references
-            ]
-          })
-        );
+        if (isGlobal) {
+          lenses.push(
+            new vscode.CodeLens(range, {
+              title: `🌍 Middleware global (appliqué sur toutes les routes)`,
+              command: ''
+            })
+          );
+        } else {
+          // Rechercher les références seulement si ce n'est pas un middleware global
+          const references = await this.findMiddlewareReferences(middlewareName);
+          const referenceCount = references.length;
+
+          lenses.push(
+            new vscode.CodeLens(range, {
+              title: `🔗 ${referenceCount} utilisation${referenceCount === 1 ? '' : 's'} du middleware`,
+              command: 'editor.action.showReferences',
+              arguments: [
+                document.uri,
+                pos,
+                references
+              ]
+            })
+          );
+        }
       }
     }
 
@@ -310,6 +322,7 @@ class Nuxt3CodeLensProvider implements vscode.CodeLensProvider {
         );
       }
     }
+
 
     // 7. Détection des stores Pinia (dans /stores/*.ts)
     if (isStore) {
