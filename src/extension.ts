@@ -693,58 +693,146 @@ class Nuxt3CodeLensProvider implements vscode.CodeLensProvider {
    * Trouver les références pour un plugin Nuxt injecté par provide
    * - Cherche tous les usages du nom injecté dans le code utilisateur
    */
-  private async findPluginReferences(pluginFilePath: string): Promise<vscode.Location[]> {
+  /**
+   * Trouver les références pour un plugin Nuxt
+   */
+  private async findPluginReferences(pluginName: string): Promise<vscode.Location[]> {
     if (!this.nuxtProjectRoot) return [];
 
-    // 1. Trouver le(s) nom(s) injecté(s) dans le plugin via nuxtApp.provide('xxx', ...)
+    const references: vscode.Location[] = [];
+    const pluginPath = path.join(this.nuxtProjectRoot, 'plugins', `${pluginName}.ts`);
+    const pluginJsPath = path.join(this.nuxtProjectRoot, 'plugins', `${pluginName}.js`);
+
+    // 1. Analyser le contenu du plugin pour trouver ce qu'il expose
     let provides: string[] = [];
+    let hasDirectives: boolean = false;
+    let directives: string[] = [];
+
     try {
-      const content = fs.readFileSync(pluginFilePath, 'utf-8');
-      // RegEx pour nuxtApp.provide('api', ...) ou nuxtApp.provide("api", ...)
+      const pluginContent = fs.existsSync(pluginPath) ?
+        fs.readFileSync(pluginPath, 'utf-8') :
+        fs.readFileSync(pluginJsPath, 'utf-8');
+
+      // Détecter les provides via nuxtApp.provide('key', ...)
       const provideRegex = /nuxtApp\.provide\s*\(\s*['"`]([$\w]+)['"`]/g;
       let match: RegExpExecArray | null;
-      while ((match = provideRegex.exec(content))) {
+      while ((match = provideRegex.exec(pluginContent))) {
         provides.push(match[1]);
       }
-    } catch (e) {
-      // ignore
-    }
-    if (provides.length === 0) return [];
 
-    // 2. Pour chaque clé injectée, trouver toutes les utilisations dans le projet
+      // Détecter les directives via nuxtApp.vueApp.directive('name', ...)
+      const directiveRegex = /nuxtApp\.vueApp\.directive\s*\(\s*['"`]([\w-]+)['"`]/g;
+      while ((match = directiveRegex.exec(pluginContent))) {
+        hasDirectives = true;
+        directives.push(match[1]);
+      }
+
+      if (provides.length === 0 && directives.length === 0) {
+        provides.push(pluginName);
+      }
+    } catch (e) {
+      return references;
+    }
+
+    // 2. Rechercher toutes les utilisations des fonctionnalités exposées
     const allFiles = await this.getFilesRecursively(this.nuxtProjectRoot, ['.vue', '.ts', '.js']);
-    const references: vscode.Location[] = [];
 
     for (const file of allFiles) {
-      if (file.includes('.nuxt')) continue;
+      if (file.includes('.nuxt') || file === pluginPath || file === pluginJsPath) continue;
+
       try {
         const fileContent = fs.readFileSync(file, 'utf-8');
+
+        // 2.1 Chercher les utilisations des provides
         for (const key of provides) {
-          // Cherche useNuxtApp().$key, const { $key } = useNuxtApp(), nuxtApp.$key, $key(
+          // Patterns améliorés pour détecter toutes les utilisations
           const patterns = [
+            // useNuxtApp().$key
             new RegExp(`useNuxtApp\\(\\)\\s*\\.\\s*\\$${key}\\b`, 'g'),
-            new RegExp(`\\{[^}]*\\$${key}[^}]*\\}\\s*=\\s*useNuxtApp\\(\\)`, 'g'),
+            // Toutes les formes de destructuration
+            new RegExp(`(const|let|var)\\s+\\{[^}]*\\$${key}\\b[^}]*\\}\\s*=\\s*(useNuxtApp\\(\\)|nuxtApp)`, 'g'),
+            // nuxtApp.$key
             new RegExp(`nuxtApp\\s*\\.\\s*\\$${key}\\b`, 'g'),
+            // $key(...)
             new RegExp(`\\$${key}\\s*\\(`, 'g'),
+            // Vue.prototype.$key
+            new RegExp(`Vue\\.prototype\\.\\$${key}\\b`, 'g'),
+            // app.$key
+            new RegExp(`app\\.\\$${key}\\b`, 'g'),
+            // this.$key
+            new RegExp(`this\\.\\$${key}\\b`, 'g'),
+            // Destructuration en deux étapes
+            new RegExp(`const\\s+nuxtApp\\s*=\\s*useNuxtApp\\(\\)[^]*?\\{[^}]*\\$${key}\\b[^}]*\\}\\s*=\\s*nuxtApp`, 'gs')
           ];
+
           for (const regex of patterns) {
             let match: RegExpExecArray | null;
             while ((match = regex.exec(fileContent))) {
-              // Calculer la position exacte
               const index = match.index;
               const before = fileContent.slice(0, index);
               const line = before.split('\n').length - 1;
-              const col = index - before.lastIndexOf('\n') - 1;
+              const lineStartIndex = before.lastIndexOf('\n') + 1;
+              const col = index - lineStartIndex;
+
               const uri = vscode.Uri.file(file);
-              const pos = new vscode.Position(line, col);
-              references.push(new vscode.Location(uri, pos));
+              const range = new vscode.Range(
+                new vscode.Position(line, col),
+                new vscode.Position(line, col + match[0].length)
+              );
+
+              references.push(new vscode.Location(uri, range));
             }
           }
         }
+
+        // 2.2 Chercher les utilisations des directives (inchangé)
+        if (hasDirectives) {
+          for (const directive of directives) {
+            const directiveRegex = new RegExp(`\\sv-${directive}\\b|\\s:v-${directive}\\b`, 'g');
+            let match: RegExpExecArray | null;
+
+            while ((match = directiveRegex.exec(fileContent))) {
+              const index = match.index;
+              const before = fileContent.slice(0, index);
+              const line = before.split('\n').length - 1;
+              const lineStartIndex = before.lastIndexOf('\n') + 1;
+              const col = index - lineStartIndex;
+
+              const uri = vscode.Uri.file(file);
+              const range = new vscode.Range(
+                new vscode.Position(line, col),
+                new vscode.Position(line, col + match[0].length)
+              );
+
+              references.push(new vscode.Location(uri, range));
+            }
+          }
+        }
+
+        // 2.3 Chercher les imports explicites (inchangé)
+        const importRegex = new RegExp(`import\\s+[^;]*['\`"]~/plugins/${pluginName}['\`"]`, 'g');
+        let match: RegExpExecArray | null;
+
+        while ((match = importRegex.exec(fileContent))) {
+          const index = match.index;
+          const before = fileContent.slice(0, index);
+          const line = before.split('\n').length - 1;
+          const lineStartIndex = before.lastIndexOf('\n') + 1;
+          const col = index - lineStartIndex;
+
+          const uri = vscode.Uri.file(file);
+          const range = new vscode.Range(
+            new vscode.Position(line, col),
+            new vscode.Position(line, col + match[0].length)
+          );
+
+          references.push(new vscode.Location(uri, range));
+        }
       } catch (e) {
-        // ignore
+        // Ignorer les erreurs
       }
     }
+
     return references;
   }
 
