@@ -1,14 +1,15 @@
 {
-  "name": "vue-smart-lens",
-  "displayName": "Vue Smart Lens",
-  "description": "Affiche les références et les composants utilisés dans vos fichiers Vue 3 et Nuxt 3.",
+  "name": "nuxt-intellisense",
+  "displayName": "Nuxt intellisense",
+  "description": "Affiche les références des composants, composables etc... utilisés dans vos fichiers  Nuxt 3.",
   "version": "0.1.0",
-  "publisher": "votre-nom",
+  "publisher": "merite-k",
   "engines": {
     "vscode": "^1.60.0"
   },
   "categories": [
     "Programming Languages",
+    "Snippets",
     "Other"
   ],
   "keywords": [
@@ -16,12 +17,25 @@
     "nuxt3",
     "vue",
     "codelens",
-    "components"
+    "components",
+    "composables",
+    "plugins",
+    "middleware",
+    "pages",
+    "layouts",
+    "stores",
+    "auto-import",
+    "intellisense",
+    "typescript",
+    "javascript",
+    "vue3",
+    "vuejs",
+    "vuejs3"
   ],
   "icon": "images/icon.png",
   "repository": {
     "type": "git",
-    "url": "https://github.com/votre-nom/nuxt3-codelens"
+    "url": "https://github.com/Merite15/Nuxt-Intelliphense"
   },
   "activationEvents": [
     "onLanguage:vue",
@@ -31,49 +45,44 @@
   "main": "./out/extension.js",
   "contributes": {
     "configuration": {
-      "title": "Nuxt 3 CodeLens",
+      "title": "nuxt-intellisense",
       "properties": {
-        "nuxt3-codelens.enable": {
+        "nuxt-intellisense.enable": {
           "type": "boolean",
           "default": true,
           "description": "Activer/désactiver les CodeLens pour Nuxt 3"
         },
-        "nuxt3-codelens.showComposables": {
+        "nuxt-intellisense.showComposables": {
           "type": "boolean",
           "default": true,
           "description": "Afficher les CodeLens pour les composables"
         },
-        "nuxt3-codelens.showComponents": {
+        "nuxt-intellisense.showComponents": {
           "type": "boolean",
           "default": true,
           "description": "Afficher les CodeLens pour les composants"
         },
-        "nuxt3-codelens.showPlugins": {
+        "nuxt-intellisense.showPlugins": {
           "type": "boolean",
           "default": true,
           "description": "Afficher les CodeLens pour les plugins"
         },
-        "nuxt3-codelens.showMiddleware": {
+        "nuxt-intellisense.showMiddleware": {
           "type": "boolean",
           "default": true,
           "description": "Afficher les CodeLens pour les middleware"
         },
-        "nuxt3-codelens.showPages": {
-          "type": "boolean",
-          "default": true,
-          "description": "Afficher les CodeLens pour les pages"
-        },
-        "nuxt3-codelens.showLayouts": {
+        "nuxt-intellisense.showLayouts": {
           "type": "boolean",
           "default": true,
           "description": "Afficher les CodeLens pour les layouts"
         },
-        "nuxt3-codelens.showStores": {
+        "nuxt-intellisense.showStores": {
           "type": "boolean",
           "default": true,
           "description": "Afficher les CodeLens pour les stores"
         },
-        "nuxt3-codelens.cacheUpdateInterval": {
+        "nuxt-intellisense.cacheUpdateInterval": {
           "type": "number",
           "default": 30000,
           "description": "Intervalle de mise à jour du cache en millisecondes"
@@ -82,8 +91,8 @@
     },
     "commands": [
       {
-        "command": "nuxt3-codelens.refreshAutoImportCache",
-        "title": "Nuxt 3 CodeLens: Actualiser le cache des auto-importations"
+        "command": "nuxt-intellisense.refreshAutoImportCache",
+        "title": "Nuxt Intellisense: Actualiser le cache des auto-importations"
       }
     ]
   },

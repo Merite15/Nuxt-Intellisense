@@ -1,6 +1,6 @@
-# Vue Smart Lens
+# Nuxt Intellisense
 
-🎯 Une extension Visual Studio Code pour Vue 3 et Nuxt 3 qui affiche automatiquement le nombre de références à vos composants, fonctions et composables.
+🎯 Une extension Visual Studio Code pour Nuxt 3 qui affiche automatiquement le nombre de références à vos composants, fonctions et composables.
 
 ## ✨ Fonctionnalités
 
@@ -19,12 +19,14 @@
 ## 📦 Packaging
 
 Pour publier :
+
 ```bash
 npm install -g vsce
 vsce package
 ```
 
 Et pour publier sur le marketplace (besoin d’un token) :
+
 ```bash
 vsce publish
 ```
