@@ -396,7 +396,7 @@ class Nuxt3CodeLensProvider implements vscode.CodeLensProvider {
     const composablesDirs = await this.findAllDirsByName('composables');
 
     for (const dir of composablesDirs) {
-      await this.scanComponentsDirectory(dir);
+      await this.scanComposablesDirectory(dir);
     }
 
   }
