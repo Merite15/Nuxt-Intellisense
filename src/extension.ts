@@ -703,7 +703,6 @@ class Nuxt3CodeLensProvider implements vscode.CodeLensProvider {
     const pluginPath = path.join(this.nuxtProjectRoot, 'plugins', `${pluginName}.ts`);
     const pluginJsPath = path.join(this.nuxtProjectRoot, 'plugins', `${pluginName}.js`);
 
-    // 1. Analyser le contenu du plugin pour trouver ce qu'il expose
     let provides: string[] = [];
     let hasDirectives: boolean = false;
     let directives: string[] = [];
@@ -713,28 +712,43 @@ class Nuxt3CodeLensProvider implements vscode.CodeLensProvider {
         fs.readFileSync(pluginPath, 'utf-8') :
         fs.readFileSync(pluginJsPath, 'utf-8');
 
-      // Détecter les provides via nuxtApp.provide('key', ...)
+      // 1. Détection classique via nuxtApp.provide('key', ...)
       const provideRegex = /nuxtApp\.provide\s*\(\s*['"`]([$\w]+)['"`]/g;
       let match: RegExpExecArray | null;
       while ((match = provideRegex.exec(pluginContent))) {
         provides.push(match[1]);
       }
 
-      // Détecter les directives via nuxtApp.vueApp.directive('name', ...)
+      // 2. Détection avancée via `provide: { key: value }`
+      const provideObjectRegex = /provide\s*:\s*\{([\s\S]*?)\}/g;
+      const keyRegex = /['"`]?([$\w]+)['"`]?\s*:/g;
+
+      let provideObjectMatch: RegExpExecArray | null;
+      while ((provideObjectMatch = provideObjectRegex.exec(pluginContent))) {
+        const keysBlock = provideObjectMatch[1];
+        let keyMatch: RegExpExecArray | null;
+        while ((keyMatch = keyRegex.exec(keysBlock))) {
+          provides.push(keyMatch[1]);
+        }
+      }
+
+      // 3. Détection des directives
       const directiveRegex = /nuxtApp\.vueApp\.directive\s*\(\s*['"`]([\w-]+)['"`]/g;
       while ((match = directiveRegex.exec(pluginContent))) {
         hasDirectives = true;
         directives.push(match[1]);
       }
 
+      // 🔍 DEBUG - affiche les clés détectées dans les plugins
       if (provides.length === 0 && directives.length === 0) {
-        provides.push(pluginName);
+        console.warn(`[PluginScanner] Aucun provide/directive détecté pour ${pluginName}`);
+      } else {
+        console.log(`[PluginScanner] Plugin "${pluginName}" expose :`, provides, directives);
       }
     } catch (e) {
       return references;
     }
 
-    // 2. Rechercher toutes les utilisations des fonctionnalités exposées
     const allFiles = await this.getFilesRecursively(this.nuxtProjectRoot, ['.vue', '.ts', '.js']);
 
     for (const file of allFiles) {
@@ -743,25 +757,15 @@ class Nuxt3CodeLensProvider implements vscode.CodeLensProvider {
       try {
         const fileContent = fs.readFileSync(file, 'utf-8');
 
-        // 2.1 Chercher les utilisations des provides
         for (const key of provides) {
-          // Patterns améliorés pour détecter toutes les utilisations
           const patterns = [
-            // useNuxtApp().$key
             new RegExp(`useNuxtApp\\(\\)\\s*\\.\\s*\\$${key}\\b`, 'g'),
-            // Toutes les formes de destructuration
             new RegExp(`(const|let|var)\\s+\\{[^}]*\\$${key}\\b[^}]*\\}\\s*=\\s*(useNuxtApp\\(\\)|nuxtApp)`, 'g'),
-            // nuxtApp.$key
             new RegExp(`nuxtApp\\s*\\.\\s*\\$${key}\\b`, 'g'),
-            // $key(...)
             new RegExp(`\\$${key}\\s*\\(`, 'g'),
-            // Vue.prototype.$key
             new RegExp(`Vue\\.prototype\\.\\$${key}\\b`, 'g'),
-            // app.$key
             new RegExp(`app\\.\\$${key}\\b`, 'g'),
-            // this.$key
             new RegExp(`this\\.\\$${key}\\b`, 'g'),
-            // Destructuration en deux étapes
             new RegExp(`const\\s+nuxtApp\\s*=\\s*useNuxtApp\\(\\)[^]*?\\{[^}]*\\$${key}\\b[^}]*\\}\\s*=\\s*nuxtApp`, 'gs')
           ];
 
@@ -785,7 +789,6 @@ class Nuxt3CodeLensProvider implements vscode.CodeLensProvider {
           }
         }
 
-        // 2.2 Chercher les utilisations des directives (inchangé)
         if (hasDirectives) {
           for (const directive of directives) {
             const directiveRegex = new RegExp(`\\sv-${directive}\\b|\\s:v-${directive}\\b`, 'g');
@@ -809,7 +812,6 @@ class Nuxt3CodeLensProvider implements vscode.CodeLensProvider {
           }
         }
 
-        // 2.3 Chercher les imports explicites (inchangé)
         const importRegex = new RegExp(`import\\s+[^;]*['\`"]~/plugins/${pluginName}['\`"]`, 'g');
         let match: RegExpExecArray | null;
 
@@ -829,12 +831,13 @@ class Nuxt3CodeLensProvider implements vscode.CodeLensProvider {
           references.push(new vscode.Location(uri, range));
         }
       } catch (e) {
-        // Ignorer les erreurs
+        // Ignorer les erreurs de lecture
       }
     }
 
     return references;
   }
+
 
   /**
    * Trouver les références pour un middleware
