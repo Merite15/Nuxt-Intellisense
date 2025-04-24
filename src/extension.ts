@@ -474,7 +474,10 @@ class Nuxt3CodeLensProvider implements vscode.CodeLensProvider {
       const entryPath = path.join(dir, entry.name);
 
       if (entry.isDirectory()) {
+        if (entry.name === 'node_modules') continue;
+
         const subFiles = await this.getFilesRecursively(entryPath, extensions);
+
         files.push(...subFiles);
       } else if (extensions.includes(path.extname(entry.name))) {
         files.push(entryPath);
