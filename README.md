@@ -1,92 +1,64 @@
-# Nuxt Intellisense
+# 🔍 Nuxt Intellisense
 
-🌟 A Visual Studio Code extension for Nuxt 3 that **automatically displays the number of references** to your components, functions, and composables — directly in your editor.
+**An extension for VS Code that revolutionizes your Nuxt 3 development experience**
 
-## ✨ Features
+## ✨ Key Features
 
-- 📌 Displays `X references` above exported functions and `defineComponent()` declarations
-- 📂 Supports both `.vue` and `.ts` files
-- 🗁 Clickable — jump to all references in the built-in VS Code references panel
-- 🧠 Tailored for Nuxt 3 projects, modular architecture, and clean composable usage
-- ⚡️ Lightweight and non-intrusive — works seamlessly as you code
+### 📊 Smart Visualization
 
-## 🧪 How It Works
+- **Real-time reference count** for:
+  - 🧩 Vue/Nuxt components (including custom components in the `pages` folder)
+  - 🔄 Composables
+  - 🗃️ Pinia stores
+  - 🖼️ Layouts
+  - 🔌 Plugins (including custom directives)
+  - 🔗 Middlewares
+  - 🔧 Utility files such as `utils`, `lib`, `helpers`, `constants`, etc.
 
-This extension parses your Nuxt 3 codebase and provides **inline reference counts** for key exports:
+### 🎯 Nuxt 3 Precision
 
-- `export const myComposable = ...`
-- `export default defineComponent({ ... })`
-- `defineComponent(() => { ... })`
+- Detection of **auto-imports** across components and composables.
+- Support for **multi-line components** (components with multiple lines and dynamic usage).
+- Fully compatible with **TypeScript** and **JavaScript** for enhanced typing and error detection.
 
-Each count links to the built-in **"Find References"** functionality of VS Code, making it easier to navigate large codebases with composables and components split across modules.
+### ⚡ Seamless Integration
 
-## 🚀 Installation (Development)
+- **Highlighting** within the source file to easily locate references.
+- **Quick navigation** to references by simply clicking on them.
+- **Real-time updates** as you modify your code, keeping everything synced.
 
-1. Clone this repository:
+### 🛠 Troubleshooting
 
-   ```bash
-   git clone https://github.com/merite15/nuxt-intellisense
-   cd nuxt-intellisense
-   ```
+- If you encounter issues with the extension, try restarting VS Code after installation.
+- Ensure that your Nuxt project is correctly configured with the `nuxt.config.js` file for the extension to recognize auto-imports.
 
-2. Open the folder in **Visual Studio Code**.
+## 🖥 Screenshot
 
-3. Press `F5` to launch the extension in a new **Extension Development Host** window.
+![Demo](./images/demo/1.png)
+![Demo](./images/demo/2.png)
+![Demo](./images/demo/3.png)
+![Demo](./images/demo/4.png)
+![Demo](./images/demo/5.png)
+![Demo](./images/demo/6.png)
+![Demo](./images/demo/7.png)
+_Visual representation of component and composable references in action._
 
-4. Open a `.vue` or `.ts` file and export a function or component to see reference counts in action.
+## 🚀 Installation
 
-## 📆 Packaging
+1. Open VS Code
+2. Go to the Extensions panel (Ctrl+Shift+X)
+3. Search for "Nuxt Intellisense"
+4. Click Install
 
-To package the extension for distribution:
-
-```bash
-npm install -g vsce
-vsce package
-```
-
-This will generate a `.vsix` file that you can install or share.
-
-## 💲 Publishing to the Marketplace
-
-1. Make sure you’ve created a **publisher** on the [Visual Studio Marketplace](https://marketplace.visualstudio.com/manage).
-
-2. Login using `vsce`:
-
-   ```bash
-   vsce login <publisher-name>
-   ```
-
-3. Publish the extension:
-   ```bash
-   vsce publish
-   ```
-
-## 📚 Example Use Case
-
-Here's an example of how it looks in your editor:
-
-```ts
-// 1 utilisation du composable
-export const useDriver = () => { ... }
-```
+## 💡 Practical Examples
 
 ```vue
-<script setup lang="ts">
-const driver = useDriver();
+<!-- 5 usages detected in the composable -->
+<script setup>
+const { data } = useData()  <!-- Composable -->
 </script>
+
+<template>
+  <UserProfile />
+</template>
 ```
-
-You’ll instantly see where `useDriver` is used, right from the definition.
-
-## 🛠 Tech Stack
-
-- TypeScript
-- VS Code Extension API
-
-## 💡 Why?
-
-In large Nuxt 3 codebases, especially with modular architecture and heavy use of composables, tracking references becomes hard. This tool bridges that gap, giving you **context-aware visibility** at a glance.
-
-## 📬 Feedback & Contributions
-
-We welcome contributions, suggestions, and feedback! Feel free to open issues or submit pull requests.
