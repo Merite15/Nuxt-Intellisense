@@ -1392,9 +1392,20 @@ class Nuxt3CodeLensProvider implements vscode.CodeLensProvider {
             }
 
             // Rechercher également les utilisations directes du nom
-            const usageRegex = new RegExp(`\\b${name}\\b`, 'g');
+            const usageRegex = new RegExp(`(?:^|[^\\w.])\\b${name}\\b(?!\\s*:)`, 'g');
             while ((match = usageRegex.exec(content))) {
               // Ignorer les imports déjà traités
+              const beforeMatch = content.substring(Math.max(0, match.index - 20), match.index);
+
+              // Ignorer si c'est dans un import ou une déclaration de variable
+              if (beforeMatch.includes('import') ||
+                beforeMatch.includes('const') ||
+                beforeMatch.includes('let') ||
+                beforeMatch.includes('var') ||
+                beforeMatch.includes('function')) {
+                continue;
+              }
+
               if (!content.substring(Math.max(0, match.index - 20), match.index).includes('import')) {
                 const index = match.index;
                 const before = content.slice(0, index);
