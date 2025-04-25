@@ -90,7 +90,10 @@ class Nuxt3CodeLensProvider implements vscode.CodeLensProvider {
     // 2. Détection des composants Vue et Nuxt (dans /components/*.vue)
     if (isVueFile) {
       // Ne pas afficher les CodeLens pour les composants si on est dans une page
-      if (!isPages && !isLayout) {
+
+      const isPagesComponents = document.fileName.includes(`${path.sep}pages${path.sep}`) && document.fileName.includes(`${path.sep}components${path.sep}`);
+
+      if ((!isPages || isPagesComponents) && !isLayout) {
         let hasAddedLens = false;
 
         // 2.1 Pour les composants avec <script setup>
@@ -758,8 +761,8 @@ class Nuxt3CodeLensProvider implements vscode.CodeLensProvider {
         const content = fs.readFileSync(file, 'utf-8');
         const kebab = this.pascalToKebabCase(nuxtComponentName);
         const searchPatterns = [
-          new RegExp(`<${nuxtComponentName}[\\s>]`, 'g'),
-          new RegExp(`<${kebab}[\\s>]`, 'g')
+          new RegExp(`<${nuxtComponentName}[^>]*>`, 'gs'),
+          new RegExp(`<${kebab}[^>]*>`, 'gs')
         ];
 
         for (const regex of searchPatterns) {
