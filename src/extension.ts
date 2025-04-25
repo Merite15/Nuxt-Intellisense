@@ -728,7 +728,9 @@ class Nuxt3CodeLensProvider implements vscode.CodeLensProvider {
     return dirs;
   }
 
-
+  /**
+ * Trouver les références pour composants Nuxt
+ */
   private async findComponentReferences(document: vscode.TextDocument, componentName: string): Promise<vscode.Location[]> {
     if (!this.nuxtProjectRoot) return [];
 
@@ -760,24 +762,38 @@ class Nuxt3CodeLensProvider implements vscode.CodeLensProvider {
       try {
         const content = fs.readFileSync(file, 'utf-8');
         const kebab = this.pascalToKebabCase(nuxtComponentName);
+
+        // 1. Recherche des balises ouvrantes avec potentiellement plusieurs lignes
         const searchPatterns = [
-          new RegExp(`<${nuxtComponentName}[^>]*>`, 'gs'),
-          new RegExp(`<${kebab}[^>]*>`, 'gs')
+          // Pour le format PascalCase
+          new RegExp(`<${nuxtComponentName}(\\s[\\s\\S]*?)?\\s*(/?)>`, 'gs'),
+          // Pour le format kebab-case
+          new RegExp(`<${kebab}(\\s[\\s\\S]*?)?\\s*(/?)>`, 'gs')
         ];
 
         for (const regex of searchPatterns) {
           let match: RegExpExecArray | null;
           while ((match = regex.exec(content))) {
+            const matchText = match[0];
             const index = match.index;
             const before = content.slice(0, index);
             const line = before.split('\n').length - 1;
+
+            // Calculer la position de début
             const lineStartIndex = before.lastIndexOf('\n') + 1;
             const col = index - lineStartIndex;
+
+            // Calculer la position de fin en tenant compte des sauts de ligne
+            const matchLines = matchText.split('\n');
+            const endLine = line + matchLines.length - 1;
+            const endCol = matchLines.length > 1
+              ? matchLines[matchLines.length - 1].length
+              : col + matchText.length;
 
             const uri = vscode.Uri.file(file);
             const range = new vscode.Range(
               new vscode.Position(line, col),
-              new vscode.Position(line, col + match[0].length)
+              new vscode.Position(endLine, endCol)
             );
 
             references.push(new vscode.Location(uri, range));
@@ -791,14 +807,6 @@ class Nuxt3CodeLensProvider implements vscode.CodeLensProvider {
     return references;
   }
 
-
-  /**
-   * Trouver les références pour un plugin
-   */
-  /**
-   * Trouver les références pour un plugin Nuxt injecté par provide
-   * - Cherche tous les usages du nom injecté dans le code utilisateur
-   */
   /**
    * Trouver les références pour un plugin Nuxt
    */
