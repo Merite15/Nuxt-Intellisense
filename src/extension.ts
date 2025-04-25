@@ -90,7 +90,7 @@ class Nuxt3CodeLensProvider implements vscode.CodeLensProvider {
     // 2. Détection des composants Vue et Nuxt (dans /components/*.vue)
     if (isVueFile) {
       // Ne pas afficher les CodeLens pour les composants si on est dans une page
-      if (!isPages) {
+      if (!isPages && !isLayout) {
         let hasAddedLens = false;
 
         // 2.1 Pour les composants avec <script setup>
@@ -291,25 +291,40 @@ class Nuxt3CodeLensProvider implements vscode.CodeLensProvider {
 
     // 6. Détection des layouts Nuxt (dans /layouts/*.vue)
     if (isLayout) {
-      const layoutName = path.basename(document.fileName, '.vue');
-      const range = new vscode.Range(0, 0, 0, 0); // Ligne 0 par défaut
+      const layoutSetupRegex = /<script\s+setup[^>]*>|<template>/g;
+      let match: RegExpExecArray | null;
 
-      // Obtenir les références uniques
-      const uniqueReferences = await this.findLayoutReferences(layoutName);
-      const referenceCount = uniqueReferences.length;
+      if ((match = layoutSetupRegex.exec(text))) {
+        const pos = document.positionAt(match.index);
+        const range = new vscode.Range(pos.line, 0, pos.line, 0);
 
-      if (referenceCount > 0) {
-        lenses.push(
-          new vscode.CodeLens(range, {
-            title: `🖼️ ${referenceCount} utilisation${referenceCount === 1 ? '' : 's'} du layout`,
-            command: 'editor.action.showReferences',
-            arguments: [
-              document.uri,
-              new vscode.Position(0, 0),
-              uniqueReferences
-            ]
-          })
-        );
+        // Nom du layout basé sur le nom de fichier
+        const layoutName = path.basename(document.fileName, '.vue');
+
+        // Rechercher les références
+        const references = await this.findLayoutReferences(layoutName);
+        const referenceCount = references.length;
+
+        if (layoutName === 'default') {
+          lenses.push(
+            new vscode.CodeLens(range, {
+              title: `🖼️ Layout par défaut (utilisé implicitement)`,
+              command: ''
+            })
+          );
+        } else if (referenceCount > 0) {
+          lenses.push(
+            new vscode.CodeLens(range, {
+              title: `🖼️ ${referenceCount} utilisation${referenceCount === 1 ? '' : 's'} du layout`,
+              command: 'editor.action.showReferences',
+              arguments: [
+                document.uri,
+                pos,
+                references
+              ]
+            })
+          );
+        }
       }
     }
 
