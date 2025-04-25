@@ -10,11 +10,11 @@ export function activate(context: vscode.ExtensionContext) {
         { language: 'typescript' },
         { language: 'javascript' }
       ],
-      new Nuxt3CodeLensProvider()
+      new NuxtIntellisense()
     )
   );
 
-  console.log('Extension "nuxt intellisense" est maintenant active!');
+  console.log('Extension "nuxt intellisense" activate!');
 }
 
 interface NuxtComponentInfo {
@@ -24,11 +24,14 @@ interface NuxtComponentInfo {
   exportType?: string;
 }
 
-class Nuxt3CodeLensProvider implements vscode.CodeLensProvider {
+class NuxtIntellisense implements vscode.CodeLensProvider {
   private nuxtProjectRoot: string | null = null;
+
   private autoImportCache: Map<string, NuxtComponentInfo[]> = new Map();
+
   private lastCacheUpdate: number = 0;
-  private cacheUpdateInterval: number = 30000; // 30 secondes
+
+  private cacheUpdateInterval: number = 30000;
 
   async provideCodeLenses(document: vscode.TextDocument): Promise<vscode.CodeLens[]> {
     const lenses: vscode.CodeLens[] = [];
@@ -1374,35 +1377,86 @@ class Nuxt3CodeLensProvider implements vscode.CodeLensProvider {
         }
 
         // Rechercher les utilisations directes (non imports)
-        const usageRegex = new RegExp(`(?:^|[^\\w.])\\b${name}\\b(?!\\s*:)`, 'g');
+        // 1. Pour les types / génériques : <MyComponent<MyType>>
+        const typeUsageRegex = new RegExp(`[:<]\\s*${name}(\\[\\])?\\b`, 'g');
 
+        // 2. Pour les usages JS classiques (évite les strings/HTML)
+        const usageRegex = new RegExp(`(?<!['"\`<>])\\b${name}\\b(?!\\s*:)`, 'g');
+
+        // 3. Pour les bindings dans les templates Vue
+        const templateBindingRegex = new RegExp(`[:@\\w\\-]+=['"]\\s*[^'"]*\\b${name}\\b[^'"]*['"]`, 'g');
+
+        const seen = new Set<string>();
+
+        // Pass 1 : types
+        while ((match = typeUsageRegex.exec(content)) !== null) {
+          const matchStart = match.index + match[0].indexOf(name);
+          const start = this.indexToPosition(content, matchStart);
+          const end = this.indexToPosition(content, matchStart + name.length);
+
+          const locationKey = `${uri.fsPath}:${start.line}:${start.character}`;
+          if (!seen.has(locationKey)) {
+            seen.add(locationKey);
+            results.push(new vscode.Location(
+              uri,
+              new vscode.Range(
+                new vscode.Position(start.line, start.character),
+                new vscode.Position(end.line, end.character)
+              )
+            ));
+          }
+        }
+
+        // Pass 2 : usages JS
         while ((match = usageRegex.exec(content)) !== null) {
           const matchStart = match.index + (match[0].length - name.length);
 
-          // Vérifier contexte (éviter imports/déclarations)
           const lineStart = content.lastIndexOf('\n', matchStart) + 1;
           const lineEnd = content.indexOf('\n', matchStart);
           const line = content.substring(lineStart, lineEnd !== -1 ? lineEnd : content.length);
 
-          // Ignorer si c'est dans un import ou une déclaration
-          if (line.includes('import ') ||
-            line.match(/\b(const|let|var|function)\s/) ||
-            line.includes('export ')) {
+          if (
+            line.includes('<') && line.includes('>') || // HTML
+            line.includes(`'${name}'`) || line.includes(`"${name}"`) || line.includes(`\`${name}\``)
+          ) {
             continue;
           }
 
-          // Calcul de la position à la main
           const start = this.indexToPosition(content, matchStart);
           const end = this.indexToPosition(content, matchStart + name.length);
 
-          results.push(new vscode.Location(
-            uri,
-            new vscode.Range(
-              new vscode.Position(start.line, start.character),
-              new vscode.Position(end.line, end.character)
-            )
-          ));
+          const locationKey = `${uri.fsPath}:${start.line}:${start.character}`;
+          if (!seen.has(locationKey)) {
+            seen.add(locationKey);
+            results.push(new vscode.Location(
+              uri,
+              new vscode.Range(
+                new vscode.Position(start.line, start.character),
+                new vscode.Position(end.line, end.character)
+              )
+            ));
+          }
         }
+
+        // ✅ Pass 3 : templates Vue
+        while ((match = templateBindingRegex.exec(content)) !== null) {
+          const matchStart = match.index + match[0].indexOf(name);
+          const start = this.indexToPosition(content, matchStart);
+          const end = this.indexToPosition(content, matchStart + name.length);
+
+          const locationKey = `${uri.fsPath}:${start.line}:${start.character}`;
+          if (!seen.has(locationKey)) {
+            seen.add(locationKey);
+            results.push(new vscode.Location(
+              uri,
+              new vscode.Range(
+                new vscode.Position(start.line, start.character),
+                new vscode.Position(end.line, end.character)
+              )
+            ));
+          }
+        }
+
       }
 
       return results;
