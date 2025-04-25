@@ -893,44 +893,37 @@ class NuxtIntellisense implements vscode.CodeLensProvider {
 
     const references: vscode.Location[] = [];
 
-    // Get all plugin directories
-    const pluginDirs = await this.findAllDirsByName('plugins');
-    let pluginPath = '';
-    let pluginContent = '';
+    // Find the plugin file first
+    const pluginUris = await vscode.workspace.findFiles(
+      `**/plugins/${pluginName}.{js,ts}`,
+      '**/node_modules/**'
+    );
 
-    // Try to find the plugin file in all plugin directories
-    for (const dir of pluginDirs) {
-      const possiblePaths = [
-        path.join(dir, `${pluginName}.ts`),
-        path.join(dir, `${pluginName}.js`)
-      ];
+    if (pluginUris.length === 0) return references;
 
-      for (const filePath of possiblePaths) {
-        if (fs.existsSync(filePath)) {
-          pluginPath = filePath;
-          pluginContent = fs.readFileSync(filePath, 'utf-8');
-          break;
-        }
-      }
+    const pluginPath = pluginUris[0].fsPath;
+    let pluginContent: string;
 
-      if (pluginPath) break;
+    try {
+      pluginContent = fs.readFileSync(pluginPath, 'utf-8');
+    } catch (e) {
+      return references;
     }
 
-    if (!pluginPath) return references;
-
+    // Extract provides and directives
     let provides: string[] = [];
     let hasDirectives: boolean = false;
     let directives: string[] = [];
 
     try {
-      // 1. Détection classique via nuxtApp.provide('key', ...)
+      // 1. Classic detection via nuxtApp.provide('key', ...)
       const provideRegex = /nuxtApp\.provide\s*\(\s*['"`]([$\w]+)['"`]/g;
       let match: RegExpExecArray | null;
       while ((match = provideRegex.exec(pluginContent))) {
         provides.push(match[1]);
       }
 
-      // 2. Détection avancée via `provide: { key: value }`
+      // 2. Advanced detection via `provide: { key: value }`
       const provideObjectRegex = /provide\s*:\s*\{([\s\S]*?)\}/g;
       const keyRegex = /['"`]?([$\w]+)['"`]?\s*:/g;
 
@@ -943,37 +936,41 @@ class NuxtIntellisense implements vscode.CodeLensProvider {
         }
       }
 
-      // 3. Détection des directives
+      // 3. Detect directives
       const directiveRegex = /nuxtApp\.vueApp\.directive\s*\(\s*['"`]([\w-]+)['"`]/g;
       while ((match = directiveRegex.exec(pluginContent))) {
         hasDirectives = true;
         directives.push(match[1]);
       }
 
-      // 🔍 DEBUG - affiche les clés détectées dans les plugins
+      // 🔍 DEBUG - show detected keys in plugins
       if (provides.length === 0 && directives.length === 0) {
-        console.warn(`[PluginScanner] Aucun provide/directive détecté pour ${pluginName}`);
+        console.warn(`[PluginScanner] No provide/directive detected for ${pluginName}`);
       } else {
-        console.log(`[PluginScanner] Plugin "${pluginName}" expose :`, provides, directives);
+        console.log(`[PluginScanner] Plugin "${pluginName}" exposes:`, provides, directives);
       }
     } catch (e) {
       return references;
     }
 
-    const allFiles = await this.getFilesRecursively(this.nuxtProjectRoot, ['.vue', '.ts', '.js']);
+    // Find all potential files that could reference the plugin
+    const allFileUris = await vscode.workspace.findFiles(
+      '**/*.{vue,js,ts}',
+      '**/node_modules/**'
+    );
 
-    for (const file of allFiles) {
-      if (file.includes('.nuxt') || file === pluginPath || file === pluginPath) continue;
+    for (const uri of allFileUris) {
+      if (uri.fsPath.includes('.nuxt') || uri.fsPath === pluginPath) continue;
 
       try {
-        const fileContent = fs.readFileSync(file, 'utf-8');
+        const fileContent = fs.readFileSync(uri.fsPath, 'utf-8');
 
+        // Check for provides usage
         for (const key of provides) {
           const patterns = [
             new RegExp(`useNuxtApp\\(\\)\\s*\\.\\s*\\$${key}\\b`, 'g'),
             new RegExp(`(const|let|var)\\s+\\{[^}]*\\$${key}\\b[^}]*\\}\\s*=\\s*(useNuxtApp\\(\\)|nuxtApp)`, 'g'),
             new RegExp(`nuxtApp\\s*\\.\\s*\\$${key}\\b`, 'g'),
-            // new RegExp(`\\$${key}\\s*\\(`, 'g'),
             new RegExp(`Vue\\.prototype\\.\\$${key}\\b`, 'g'),
             new RegExp(`app\\.\\$${key}\\b`, 'g'),
             new RegExp(`this\\.\\$${key}\\b`, 'g'),
@@ -983,66 +980,59 @@ class NuxtIntellisense implements vscode.CodeLensProvider {
           for (const regex of patterns) {
             let match: RegExpExecArray | null;
             while ((match = regex.exec(fileContent))) {
-              const index = match.index;
-              const before = fileContent.slice(0, index);
-              const line = before.split('\n').length - 1;
-              const lineStartIndex = before.lastIndexOf('\n') + 1;
-              const col = index - lineStartIndex;
+              const start = this.indexToPosition(fileContent, match.index);
+              const end = this.indexToPosition(fileContent, match.index + match[0].length);
 
-              const uri = vscode.Uri.file(file);
-              const range = new vscode.Range(
-                new vscode.Position(line, col),
-                new vscode.Position(line, col + match[0].length)
-              );
-
-              references.push(new vscode.Location(uri, range));
+              references.push(new vscode.Location(
+                uri,
+                new vscode.Range(
+                  new vscode.Position(start.line, start.character),
+                  new vscode.Position(end.line, end.character)
+                )
+              ));
             }
           }
         }
 
+        // Check for directives usage
         if (hasDirectives) {
           for (const directive of directives) {
             const directiveRegex = new RegExp(`\\sv-${directive}\\b|\\s:v-${directive}\\b`, 'g');
             let match: RegExpExecArray | null;
 
             while ((match = directiveRegex.exec(fileContent))) {
-              const index = match.index;
-              const before = fileContent.slice(0, index);
-              const line = before.split('\n').length - 1;
-              const lineStartIndex = before.lastIndexOf('\n') + 1;
-              const col = index - lineStartIndex;
+              const start = this.indexToPosition(fileContent, match.index);
+              const end = this.indexToPosition(fileContent, match.index + match[0].length);
 
-              const uri = vscode.Uri.file(file);
-              const range = new vscode.Range(
-                new vscode.Position(line, col),
-                new vscode.Position(line, col + match[0].length)
-              );
-
-              references.push(new vscode.Location(uri, range));
+              references.push(new vscode.Location(
+                uri,
+                new vscode.Range(
+                  new vscode.Position(start.line, start.character),
+                  new vscode.Position(end.line, end.character)
+                )
+              ));
             }
           }
         }
 
+        // Check for direct imports of the plugin
         const importRegex = new RegExp(`import\\s+[^;]*['\`"]~/plugins/${pluginName}['\`"]`, 'g');
         let match: RegExpExecArray | null;
 
         while ((match = importRegex.exec(fileContent))) {
-          const index = match.index;
-          const before = fileContent.slice(0, index);
-          const line = before.split('\n').length - 1;
-          const lineStartIndex = before.lastIndexOf('\n') + 1;
-          const col = index - lineStartIndex;
+          const start = this.indexToPosition(fileContent, match.index);
+          const end = this.indexToPosition(fileContent, match.index + match[0].length);
 
-          const uri = vscode.Uri.file(file);
-          const range = new vscode.Range(
-            new vscode.Position(line, col),
-            new vscode.Position(line, col + match[0].length)
-          );
-
-          references.push(new vscode.Location(uri, range));
+          references.push(new vscode.Location(
+            uri,
+            new vscode.Range(
+              new vscode.Position(start.line, start.character),
+              new vscode.Position(end.line, end.character)
+            )
+          ));
         }
       } catch (e) {
-        // Ignorer les erreurs de lecture
+        // Ignore reading errors
       }
     }
 
