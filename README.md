@@ -36,11 +36,6 @@
 
 ![Demo](./images/demo/1.png)
 ![Demo](./images/demo/2.png)
-![Demo](./images/demo/3.png)
-![Demo](./images/demo/4.png)
-![Demo](./images/demo/5.png)
-![Demo](./images/demo/6.png)
-![Demo](./images/demo/7.png)
 _Visual representation of component and composable references in action._
 
 ## 🚀 Installation
