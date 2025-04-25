@@ -48,12 +48,13 @@ _Visual representation of component and composable references in action._
 ## 💡 Practical Examples
 
 ```vue
-<!-- 5 usages detected in the composable -->
+<!-- 5 usages detected for the composable -->
+export const useData() { }
+
+<!-- 3 usages detected for the components -->
 <script setup>
 const { data } = useData()  <!-- Composable -->
 </script>
 
-<template>
-  <UserProfile />
-</template>
+<template></template>
 ```

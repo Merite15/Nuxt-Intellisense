@@ -2,7 +2,7 @@
   "name": "nuxt-intellisense",
   "license": "MIT",
   "displayName": "Nuxt Intellisense",
-  "description": "Displays references to components, composables, and other exports used in your Nuxt 3 files.",
+  "description": "Displays references to components, composables, and other exports used in your Nuxt 3 application.",
   "version": "0.3.0",
   "publisher": "MeriteK",
   "engines": {
