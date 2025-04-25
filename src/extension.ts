@@ -291,28 +291,22 @@ class Nuxt3CodeLensProvider implements vscode.CodeLensProvider {
 
     // 6. Détection des layouts Nuxt (dans /layouts/*.vue)
     if (isLayout) {
-      const layoutSetupRegex = /<script\s+setup[^>]*>|<template>/g;
-      let match: RegExpExecArray | null;
+      const layoutName = path.basename(document.fileName, '.vue');
+      const range = new vscode.Range(0, 0, 0, 0); // Ligne 0 par défaut
 
-      if ((match = layoutSetupRegex.exec(text))) {
-        const pos = document.positionAt(match.index);
-        const range = new vscode.Range(pos.line, 0, pos.line, 0);
+      // Obtenir les références uniques
+      const uniqueReferences = await this.findLayoutReferences(layoutName);
+      const referenceCount = uniqueReferences.length;
 
-        // Nom du layout basé sur le nom de fichier
-        const layoutName = path.basename(document.fileName, '.vue');
-
-        // Rechercher les références
-        const references = await this.findLayoutReferences(layoutName);
-        const referenceCount = references.length;
-
+      if (referenceCount > 0) {
         lenses.push(
           new vscode.CodeLens(range, {
             title: `🖼️ ${referenceCount} utilisation${referenceCount === 1 ? '' : 's'} du layout`,
             command: 'editor.action.showReferences',
             arguments: [
               document.uri,
-              pos,
-              references
+              new vscode.Position(0, 0),
+              uniqueReferences
             ]
           })
         );
@@ -875,7 +869,7 @@ class Nuxt3CodeLensProvider implements vscode.CodeLensProvider {
             new RegExp(`useNuxtApp\\(\\)\\s*\\.\\s*\\$${key}\\b`, 'g'),
             new RegExp(`(const|let|var)\\s+\\{[^}]*\\$${key}\\b[^}]*\\}\\s*=\\s*(useNuxtApp\\(\\)|nuxtApp)`, 'g'),
             new RegExp(`nuxtApp\\s*\\.\\s*\\$${key}\\b`, 'g'),
-            new RegExp(`\\$${key}\\s*\\(`, 'g'),
+            // new RegExp(`\\$${key}\\s*\\(`, 'g'),
             new RegExp(`Vue\\.prototype\\.\\$${key}\\b`, 'g'),
             new RegExp(`app\\.\\$${key}\\b`, 'g'),
             new RegExp(`this\\.\\$${key}\\b`, 'g'),
@@ -1044,61 +1038,87 @@ class Nuxt3CodeLensProvider implements vscode.CodeLensProvider {
     }
 
     const references: vscode.Location[] = [];
+    const seenReferences = new Set<string>();
 
-    // Search in page files across all possible page directories
+    // 1. Recherche dans les pages
     const pagesDirs = await this.findAllDirsByName('pages');
 
     for (const pagesDir of pagesDirs) {
-      if (fs.existsSync(pagesDir)) {
-        const pageFiles = await this.getFilesRecursively(pagesDir, ['.vue']);
+      if (!fs.existsSync(pagesDir)) continue;
 
-        for (const pageFile of pageFiles) {
-          try {
-            const content = fs.readFileSync(pageFile, 'utf-8');
+      const pageFiles = await this.getFilesRecursively(pagesDir, ['.vue']);
 
-            // Look for definePageMeta with layout property
-            const layoutRegex = /definePageMeta\s*\(\s*\{[^}]*layout\s*:\s*(['"`])([^'"`]*)\1/g;
-            let match;
+      for (const pageFile of pageFiles) {
+        try {
+          const content = fs.readFileSync(pageFile, 'utf-8');
 
-            while ((match = layoutRegex.exec(content)) !== null) {
-              const foundLayoutName = match[2];
-              if (foundLayoutName === layoutName) {
-                // Calculate the exact position of the layout name for highlighting
-                const fullMatch = match[0];
-                const layoutValueIndex = fullMatch.lastIndexOf(match[1] + layoutName + match[1]);
-                const exactIndex = match.index + layoutValueIndex + 1; // +1 to skip the opening quote
+          // 2. Recherche plus précise de definePageMeta
+          const metaRegex = /definePageMeta\s*\(([^)]*)\)/gs;
+          let metaMatch;
 
-                const before = content.slice(0, exactIndex);
-                const line = before.split('\n').length - 1;
-                const col = exactIndex - before.lastIndexOf('\n') - 1;
+          while ((metaMatch = metaRegex.exec(content)) !== null) {
+            const metaContent = metaMatch[1];
+            const layoutRegex = /layout\s*:\s*(['"`])([^'"`]+)\1/g;
+            let layoutMatch;
 
-                const uri = vscode.Uri.file(pageFile);
-                const range = new vscode.Range(line, col, line, col + layoutName.length);
-                references.push(new vscode.Location(uri, range));
+            while ((layoutMatch = layoutRegex.exec(metaContent)) !== null) {
+              if (layoutMatch[2] === layoutName) {
+                const key = `${pageFile}:${metaMatch.index}`;
+                if (!seenReferences.has(key)) {
+                  seenReferences.add(key);
+
+                  const pos = this.findExactPosition(
+                    content,
+                    layoutMatch.index + metaMatch.index,
+                    layoutMatch[2]
+                  );
+
+                  references.push(new vscode.Location(
+                    vscode.Uri.file(pageFile),
+                    new vscode.Range(pos, pos)
+                  ));
+                }
               }
             }
-          } catch (e) {
-            // Ignore errors
+          }
+        } catch (e) {
+          console.debug(`Error reading ${pageFile}:`, e);
+        }
+      }
+    }
+
+    // 3. Vérification de app.vue pour le layout par défaut
+    if (layoutName === 'default') {
+      const appVuePaths = [
+        path.join(this.nuxtProjectRoot, 'app.vue'),
+        path.join(this.nuxtProjectRoot, 'app', 'app.vue')
+      ];
+
+      for (const appVuePath of appVuePaths) {
+        if (fs.existsSync(appVuePath)) {
+          const key = `${appVuePath}:0`;
+          if (!seenReferences.has(key)) {
+            seenReferences.add(key);
+            references.push(new vscode.Location(
+              vscode.Uri.file(appVuePath),
+              new vscode.Position(0, 0)
+            ));
           }
         }
       }
     }
 
-    // Check app.vue for default layout in possible locations
-    const possibleAppVuePaths = [
-      path.join(this.nuxtProjectRoot, 'app.vue'),
-      path.join(this.nuxtProjectRoot, 'app', 'app.vue')
-    ];
-
-    for (const appVuePath of possibleAppVuePaths) {
-      if (fs.existsSync(appVuePath) && layoutName === 'default') {
-        const uri = vscode.Uri.file(appVuePath);
-        const pos = new vscode.Position(0, 0);
-        references.push(new vscode.Location(uri, pos));
-      }
-    }
-
     return references;
+  }
+
+  // Nouvelle méthode helper pour trouver la position exacte
+  private findExactPosition(content: string, offset: number, searchText: string): vscode.Position {
+    const before = content.substring(0, offset);
+    const line = before.split('\n').length - 1;
+    const lineStart = before.lastIndexOf('\n') + 1;
+    const col = offset - lineStart + content.substring(offset).indexOf(searchText);
+
+    return new vscode.Position(line, col);
   }
 
   /**
