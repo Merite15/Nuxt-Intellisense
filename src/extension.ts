@@ -1176,22 +1176,31 @@ class NuxtIntellisense implements vscode.CodeLensProvider {
    */
   private async findStoreReferences(storeName: string): Promise<vscode.Location[]> {
     try {
-      // Normaliser le nom du store pour générer le hook
-      const storeHookName = `use${storeName
-        .split(/[-_]/)
+      // Rechercher à la fois par le nom du hook et le nom du store dans defineStore
+      const normalizedName = storeName
+        .split(/[-_\s]/)
         .map(s => s.charAt(0).toUpperCase() + s.slice(1))
-        .join('')}Store`;
+        .join('');
 
-      // Utiliser findFiles pour trouver tous les fichiers pertinents, comme pour les layouts
+      const storeHookName = `use${normalizedName}Store`;
+      // Support pour différentes variations de nommage du store
+      const possibleStoreIds = [
+        storeName,
+        storeName.replace(/-/g, ' '),
+        storeName.replace(/-/g, '_'),
+        // Gérer aussi le cas où storeName est au singulier mais défini au pluriel
+        `${storeName}s`,
+        `${storeName.replace(/-/g, ' ')}s`,
+        `${storeName.replace(/-/g, '_')}s`
+      ];
+
       const uris = await vscode.workspace.findFiles('**/*.{vue,js,ts}');
       const results: vscode.Location[] = [];
+      const storeDefinitions: Map<string, string> = new Map(); // Pour stocker les id -> hookName
 
+      // Première passe: trouver toutes les définitions de store
       for (const uri of uris) {
-        // Exclure les dossiers non pertinents
-        if (uri.fsPath.includes('node_modules') || uri.fsPath.includes('.nuxt') ||
-          uri.fsPath.includes('.output') || uri.fsPath.includes('dist')) {
-          continue;
-        }
+        if (this.shouldSkipFile(uri.fsPath)) continue;
 
         let content: string;
         try {
@@ -1200,39 +1209,83 @@ class NuxtIntellisense implements vscode.CodeLensProvider {
           continue;
         }
 
-        // Pattern principal pour trouver les usages du store
-        const regex = new RegExp(`\\b${storeHookName}\\b`, 'g');
-        let match;
+        // Chercher les définitions de store
+        const defineStoreRegex = /defineStore\s*\(\s*['"]([^'"]+)['"]/g;
+        let defineMatch;
 
-        while ((match = regex.exec(content)) !== null) {
-          // Vérifier que ce n'est pas une définition de store
-          const lineStart = content.lastIndexOf('\n', match.index) + 1;
-          const lineEnd = content.indexOf('\n', match.index);
-          const line = content.substring(lineStart, lineEnd !== -1 ? lineEnd : content.length);
+        while ((defineMatch = defineStoreRegex.exec(content)) !== null) {
+          const storeId = defineMatch[1];
 
-          // Si la ligne contient 'defineStore', c'est probablement une définition, pas une référence
-          if (line.includes('defineStore')) {
-            continue;
+          // Trouver le nom du hook associé à cette définition
+          const hookNameRegex = /const\s+(\w+)\s*=\s*defineStore\s*\(\s*['"]([^'"]+)['"]/g;
+          hookNameRegex.lastIndex = 0; // Réinitialiser l'index
+
+          let hookMatch;
+          while ((hookMatch = hookNameRegex.exec(content)) !== null) {
+            if (hookMatch[2] === storeId) {
+              storeDefinitions.set(storeId, hookMatch[1]);
+              break;
+            }
           }
+        }
+      }
 
-          // Calcul de la position à la main, comme dans findLayoutReferences
-          const start = this.indexToPosition(content, match.index);
-          const end = this.indexToPosition(content, match.index + match[0].length);
+      // Deuxième passe: chercher les références
+      for (const uri of uris) {
+        if (this.shouldSkipFile(uri.fsPath)) continue;
 
-          results.push(new vscode.Location(
-            uri,
-            new vscode.Range(
-              new vscode.Position(start.line, start.character),
-              new vscode.Position(end.line, end.character)
-            )
-          ));
+        let content: string;
+        try {
+          content = fs.readFileSync(uri.fsPath, 'utf-8');
+        } catch {
+          continue;
+        }
+
+        // Chercher les usages du hook par nom conventionnel
+        const hookRegex = new RegExp(`\\b${storeHookName}\\b`, 'g');
+        this.findMatches(hookRegex, content, uri, results);
+
+        // Chercher aussi les usages par ID de store (pour la forme `const store = useStore('store-id')`)
+        for (const storeId of possibleStoreIds) {
+          const storeIdRegex = new RegExp(`useStore\\s*\\(\\s*['"]${storeId}['"]\\s*\\)`, 'g');
+          this.findMatches(storeIdRegex, content, uri, results);
+
+          // Chercher les usages des hooks associés aux IDs trouvés dans la première passe
+          if (storeDefinitions.has(storeId)) {
+            const hookName = storeDefinitions.get(storeId);
+            const customHookRegex = new RegExp(`\\b${hookName}\\b`, 'g');
+            this.findMatches(customHookRegex, content, uri, results);
+          }
         }
       }
 
       return results;
     } catch (e) {
-      console.error('Error in findStoreReferences:', e);
+      console.error('Error:', e);
       return [];
+    }
+  }
+
+  private shouldSkipFile(fsPath: string): boolean {
+    return fsPath.includes('node_modules') ||
+      fsPath.includes('.nuxt') ||
+      fsPath.includes('.output') ||
+      fsPath.includes('dist');
+  }
+
+  private findMatches(regex: RegExp, content: string, uri: vscode.Uri, results: vscode.Location[]): void {
+    let match;
+    while ((match = regex.exec(content)) !== null) {
+      const start = this.indexToPosition(content, match.index);
+      const end = this.indexToPosition(content, match.index + match[0].length);
+
+      results.push(new vscode.Location(
+        uri,
+        new vscode.Range(
+          new vscode.Position(start.line, start.character),
+          new vscode.Position(end.line, end.character)
+        )
+      ));
     }
   }
 
