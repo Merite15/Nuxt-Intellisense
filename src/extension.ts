@@ -649,7 +649,7 @@ class Nuxt3CodeLensProvider implements vscode.CodeLensProvider {
       }
 
       // Utiliser findFiles pour trouver tous les fichiers pertinents dans le workspace
-      const uris = await vscode.workspace.findFiles('**/*.{vue,js,ts}', '**/node_modules/**');
+      const uris = await vscode.workspace.findFiles('**/*.{vue,js,ts}');
 
       for (const uri of uris) {
         // Ignorer les fichiers générés et le fichier courant
@@ -818,7 +818,7 @@ class Nuxt3CodeLensProvider implements vscode.CodeLensProvider {
     const results: vscode.Location[] = [];
 
     // Utiliser findFiles pour trouver tous les fichiers pertinents dans le workspace
-    const uris = await vscode.workspace.findFiles('**/*.{vue,js,ts}', '**/node_modules/**');
+    const uris = await vscode.workspace.findFiles('**/*.{vue,js,ts}');
 
     for (const uri of uris) {
       if (uri.fsPath.includes('node_modules') ||
@@ -1176,7 +1176,7 @@ class Nuxt3CodeLensProvider implements vscode.CodeLensProvider {
         .join('')}Store`;
 
       // Utiliser findFiles pour trouver tous les fichiers pertinents, comme pour les layouts
-      const uris = await vscode.workspace.findFiles('**/*.{vue,js,ts}', '**/node_modules/**');
+      const uris = await vscode.workspace.findFiles('**/*.{vue,js,ts}');
       const results: vscode.Location[] = [];
 
       for (const uri of uris) {
@@ -1301,7 +1301,7 @@ class Nuxt3CodeLensProvider implements vscode.CodeLensProvider {
       const results: vscode.Location[] = [];
 
       // Utiliser directement findFiles comme dans findLayoutReferences
-      const uris = await vscode.workspace.findFiles('**/*.{vue,js,ts}', '**/node_modules/**');
+      const uris = await vscode.workspace.findFiles('**/*.{vue,js,ts}');
 
       // Première passe : utiliser le provider de références natif de VS Code
       const nativeReferences = await vscode.commands.executeCommand<vscode.Location[]>(
