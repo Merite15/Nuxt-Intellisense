@@ -631,6 +631,8 @@ class Nuxt3CodeLensProvider implements vscode.CodeLensProvider {
    */
   private async findAllReferences(document: vscode.TextDocument, name: string, position: vscode.Position): Promise<vscode.Location[]> {
     try {
+      const results: vscode.Location[] = [];
+
       // Recherche standard des références via VS Code
       const references = await vscode.commands.executeCommand<vscode.Location[]>(
         'vscode.executeReferenceProvider',
@@ -638,55 +640,59 @@ class Nuxt3CodeLensProvider implements vscode.CodeLensProvider {
         new vscode.Position(position.line, position.character + name.length - 1)
       ) || [];
 
-      // Filtrer les fichiers générés par Nuxt
-      const filteredReferences = references.filter(ref =>
-        !ref.uri.fsPath.includes('.nuxt') &&
-        !(ref.uri.fsPath === document.uri.fsPath &&
-          ref.range.start.line === position.line)
-      );
-
-      // Si nous avons un projet Nuxt, rechercher les auto-importations
-      if (this.nuxtProjectRoot) {
-        // Rechercher les occurrences du composable dans tous les fichiers
-        const allFiles = await this.getFilesRecursively(this.nuxtProjectRoot, ['.vue', '.ts', '.js']);
-
-        for (const file of allFiles) {
-          // Éviter de chercher dans le fichier courant
-          if (file === document.uri.fsPath) continue;
-
-          try {
-            const content = fs.readFileSync(file, 'utf-8');
-
-            // Chercher les utilisations du composable avec surlignage précis
-            const usageRegex = new RegExp(`\\b(${name}\\s*\\(|${name}\\s*<)`, 'g'); // Inclut les appels avec génériques comme `<T>`
-            let match: RegExpExecArray | null;
-
-            while ((match = usageRegex.exec(content))) {
-              const matchText = match[1];
-              const index = match.index;
-              const before = content.slice(0, index);
-              const line = before.split('\n').length - 1;
-
-              // Calculer la colonne exacte
-              const lineStartIndex = before.lastIndexOf('\n') + 1;
-              const col = index - lineStartIndex;
-
-              const uri = vscode.Uri.file(file);
-              const range = new vscode.Range(
-                new vscode.Position(line, col),
-                new vscode.Position(line, col + matchText.length)
-              );
-
-              filteredReferences.push(new vscode.Location(uri, range));
-            }
-          } catch (e) {
-            // Ignorer les erreurs
-          }
+      // Filtrer les fichiers générés
+      for (const ref of references) {
+        if (!ref.uri.fsPath.includes('.nuxt') &&
+          !(ref.uri.fsPath === document.uri.fsPath && ref.range.start.line === position.line)) {
+          results.push(ref);
         }
       }
 
-      return filteredReferences;
+      // Utiliser findFiles pour trouver tous les fichiers pertinents dans le workspace
+      const uris = await vscode.workspace.findFiles('**/*.{vue,js,ts}', '**/node_modules/**');
+
+      for (const uri of uris) {
+        // Ignorer les fichiers générés et le fichier courant
+        if (uri.fsPath.includes('node_modules') ||
+          uri.fsPath.includes('.nuxt') ||
+          uri.fsPath.includes('.output') ||
+          uri.fsPath.includes('dist') ||
+          uri.fsPath === document.uri.fsPath) {
+          continue;
+        }
+
+        let content: string;
+        try {
+          content = fs.readFileSync(uri.fsPath, 'utf-8');
+        } catch {
+          continue;
+        }
+
+        // Rechercher les utilisations du composable
+        const usageRegex = new RegExp(`\\b(${name}\\s*\\(|${name}\\s*<)`, 'g'); // Inclut les appels avec génériques
+        let match;
+
+        while ((match = usageRegex.exec(content)) !== null) {
+          const matchText = match[1];
+          const index = match.index;
+
+          // Calculer la position à la main
+          const start = this.indexToPosition(content, index);
+          const end = this.indexToPosition(content, index + matchText.length);
+
+          results.push(new vscode.Location(
+            uri,
+            new vscode.Range(
+              new vscode.Position(start.line, start.character),
+              new vscode.Position(end.line, end.character)
+            )
+          ));
+        }
+      }
+
+      return results;
     } catch (e) {
+      console.error('Error finding references:', e);
       return [];
     }
   }
@@ -792,6 +798,8 @@ class Nuxt3CodeLensProvider implements vscode.CodeLensProvider {
 
     console.log(componentName);
 
+
+    // Identification du nom du composant Nuxt
     const allComponentDirs = await this.findAllComponentsDirs();
     const filePath = document.uri.fsPath;
 
@@ -805,62 +813,69 @@ class Nuxt3CodeLensProvider implements vscode.CodeLensProvider {
 
     if (!nuxtComponentName) return [];
 
-    const allFiles = await this.getFilesRecursively(this.nuxtProjectRoot, ['.vue', '.ts', '.js']);
-    const references: vscode.Location[] = [];
+    // Version kebab-case du nom du composant
+    const kebab = this.pascalToKebabCase(nuxtComponentName);
+    const results: vscode.Location[] = [];
 
-    for (const file of allFiles) {
-      if (
-        file.includes('.nuxt') ||
-        path.basename(file) === 'app.vue' ||
-        path.basename(file) === 'error.vue'
-      ) continue;
+    // Utiliser findFiles pour trouver tous les fichiers pertinents dans le workspace
+    const uris = await vscode.workspace.findFiles('**/*.{vue,js,ts}', '**/node_modules/**');
 
+    for (const uri of uris) {
+      if (uri.fsPath.includes('node_modules') ||
+        uri.fsPath.includes('.nuxt') ||
+        uri.fsPath.includes('.output') ||
+        uri.fsPath.includes('dist') ||
+        path.basename(uri.fsPath) === 'app.vue' ||
+        path.basename(uri.fsPath) === 'error.vue') {
+        continue;
+      }
+
+      let content: string;
       try {
-        const content = fs.readFileSync(file, 'utf-8');
-        const kebab = this.pascalToKebabCase(nuxtComponentName);
+        content = fs.readFileSync(uri.fsPath, 'utf-8');
+      } catch {
+        continue;
+      }
 
-        // 1. Recherche des balises ouvrantes avec potentiellement plusieurs lignes
-        const searchPatterns = [
-          // Pour le format PascalCase
-          new RegExp(`<${nuxtComponentName}(\\s[\\s\\S]*?)?\\s*(/?)>`, 'gs'),
-          // Pour le format kebab-case
-          new RegExp(`<${kebab}(\\s[\\s\\S]*?)?\\s*(/?)>`, 'gs')
-        ];
+      // Recherche des balises ouvrantes avec potentiellement plusieurs lignes
+      const searchPatterns = [
+        // Pour le format PascalCase
+        new RegExp(`<${nuxtComponentName}(\\s[\\s\\S]*?)?\\s*(/?)>`, 'gs'),
+        // Pour le format kebab-case
+        new RegExp(`<${kebab}(\\s[\\s\\S]*?)?\\s*(/?)>`, 'gs')
+      ];
 
-        for (const regex of searchPatterns) {
-          let match: RegExpExecArray | null;
-          while ((match = regex.exec(content))) {
-            const matchText = match[0];
-            const index = match.index;
-            const before = content.slice(0, index);
-            const line = before.split('\n').length - 1;
+      for (const regex of searchPatterns) {
+        let match;
+        while ((match = regex.exec(content)) !== null) {
+          const matchText = match[0];
+          const index = match.index;
 
-            // Calculer la position de début
-            const lineStartIndex = before.lastIndexOf('\n') + 1;
-            const col = index - lineStartIndex;
+          // Calculer la position à la main
+          const before = content.slice(0, index);
+          const line = before.split('\n').length - 1;
+          const lineStartIndex = before.lastIndexOf('\n') + 1;
+          const col = index - lineStartIndex;
 
-            // Calculer la position de fin en tenant compte des sauts de ligne
-            const matchLines = matchText.split('\n');
-            const endLine = line + matchLines.length - 1;
-            const endCol = matchLines.length > 1
-              ? matchLines[matchLines.length - 1].length
-              : col + matchText.length;
+          // Calculer la position de fin en tenant compte des sauts de ligne
+          const matchLines = matchText.split('\n');
+          const endLine = line + matchLines.length - 1;
+          const endCol = matchLines.length > 1
+            ? matchLines[matchLines.length - 1].length
+            : col + matchText.length;
 
-            const uri = vscode.Uri.file(file);
-            const range = new vscode.Range(
+          results.push(new vscode.Location(
+            uri,
+            new vscode.Range(
               new vscode.Position(line, col),
               new vscode.Position(endLine, endCol)
-            );
-
-            references.push(new vscode.Location(uri, range));
-          }
+            )
+          ));
         }
-      } catch (e) {
-        // ignore
       }
     }
 
-    return references;
+    return results;
   }
 
   /**
@@ -1027,88 +1042,84 @@ class Nuxt3CodeLensProvider implements vscode.CodeLensProvider {
     return references;
   }
 
-
   /**
    * Trouver les références pour un middleware
    */
   private async findMiddlewareReferences(middlewareName: string): Promise<vscode.Location[]> {
-    if (!this.nuxtProjectRoot) {
-      return [];
-    }
+    // Utiliser findFiles pour trouver toutes les pages Vue du projet
+    const uris = await vscode.workspace.findFiles('**/pages/**/*.vue');
+    const results: vscode.Location[] = [];
 
-    const references: vscode.Location[] = [];
+    for (const uri of uris) {
+      let content: string;
+      try {
+        content = fs.readFileSync(uri.fsPath, 'utf-8');
+      } catch {
+        continue;
+      }
 
-    // Get all pages directories - supporting both structures
-    const pagesDirs = await this.findAllDirsByName('pages');
+      // Rechercher les blocs definePageMeta
+      const definePageMetaRegex = /definePageMeta\s*\(\s*\{[^}]*\}/g;
+      let metaMatch;
 
-    for (const pagesDir of pagesDirs) {
-      if (fs.existsSync(pagesDir)) {
-        const pageFiles = await this.getFilesRecursively(pagesDir, ['.vue']);
+      while ((metaMatch = definePageMetaRegex.exec(content)) !== null) {
+        const metaContent = metaMatch[0];
+        const metaStartIndex = metaMatch.index;
 
-        for (const pageFile of pageFiles) {
-          try {
-            const content = fs.readFileSync(pageFile, 'utf-8');
-            const definePageMetaRegex = /definePageMeta\s*\(\s*\{[^}]*\}/g;
+        // Cas 1: middleware en tant que chaîne unique - middleware: 'chat'
+        const singleMiddlewareRegex = new RegExp(`middleware\\s*:\\s*(['"\`])(${middlewareName})\\1`, 'g');
+        let singleMatch;
 
-            let metaMatch;
-            while ((metaMatch = definePageMetaRegex.exec(content)) !== null) {
-              const metaContent = metaMatch[0];
-              const metaStartIndex = metaMatch.index;
+        while ((singleMatch = singleMiddlewareRegex.exec(metaContent)) !== null) {
+          // Calculer la position exacte pour le middleware
+          const middlewareValueIndex = metaContent.indexOf(singleMatch[1] + middlewareName + singleMatch[1], singleMatch.index);
+          const exactIndex = metaStartIndex + middlewareValueIndex + 1; // +1 pour sauter le guillemet d'ouverture
 
-              // Case 1: middleware as single string - middleware: 'chat'
-              const singleMiddlewareRegex = /middleware\s*:\s*(['"`])([^'"`]*)\1/g;
-              let singleMatch;
+          // Calculer la position à la main
+          const start = this.indexToPosition(content, exactIndex);
+          const end = this.indexToPosition(content, exactIndex + middlewareName.length);
 
-              while ((singleMatch = singleMiddlewareRegex.exec(metaContent)) !== null) {
-                const foundMiddleware = singleMatch[2];
-                if (foundMiddleware === middlewareName) {
-                  // Calculate exact position for highlighting
-                  const middlewareValueIndex = metaContent.indexOf(singleMatch[1] + middlewareName + singleMatch[1], singleMatch.index);
-                  const exactIndex = metaStartIndex + middlewareValueIndex + 1; // +1 to skip the opening quote
+          results.push(new vscode.Location(
+            uri,
+            new vscode.Range(
+              new vscode.Position(start.line, start.character),
+              new vscode.Position(end.line, end.character)
+            )
+          ));
+        }
 
-                  const before = content.slice(0, exactIndex);
-                  const line = before.split('\n').length - 1;
-                  const col = exactIndex - before.lastIndexOf('\n') - 1;
+        // Cas 2: middleware en tant que tableau - middleware: ['mobile-only', 'chat']
+        const arrayMiddlewareRegex = /middleware\s*:\s*\[([^\]]*)\]/g;
+        let arrayMatch;
 
-                  const uri = vscode.Uri.file(pageFile);
-                  const range = new vscode.Range(line, col, line, col + middlewareName.length);
-                  references.push(new vscode.Location(uri, range));
-                }
-              }
+        while ((arrayMatch = arrayMiddlewareRegex.exec(metaContent)) !== null) {
+          const arrayContent = arrayMatch[1];
+          const itemRegex = new RegExp(`(['"\`])(${middlewareName})\\1`, 'g');
+          let itemMatch;
 
-              // Case 2: middleware as array - middleware: ['mobile-only', 'chat']
-              const arrayMiddlewareRegex = /middleware\s*:\s*\[([^\]]*)\]/g;
-              let arrayMatch;
+          while ((itemMatch = itemRegex.exec(arrayContent)) !== null) {
+            // Calculer la position exacte dans le tableau
+            const arrayStartIndex = metaContent.indexOf(arrayContent, arrayMatch.index);
+            const middlewareInArrayIndex = arrayContent.indexOf(itemMatch[0]);
+            const exactIndex = metaStartIndex + arrayStartIndex + middlewareInArrayIndex + 1; // +1 pour sauter le guillemet d'ouverture
 
-              while ((arrayMatch = arrayMiddlewareRegex.exec(metaContent)) !== null) {
-                const arrayContent = arrayMatch[1];
-                const itemRegex = new RegExp(`(['"\`])(${middlewareName})\\1`, 'g');
-                let itemMatch;
+            // Calculer la position à la main
+            const start = this.indexToPosition(content, exactIndex);
+            const end = this.indexToPosition(content, exactIndex + middlewareName.length);
 
-                while ((itemMatch = itemRegex.exec(arrayContent)) !== null) {
-                  // Calculate the exact position within the array
-                  const arrayStartIndex = metaContent.indexOf(arrayContent, arrayMatch.index);
-                  const middlewareInArrayIndex = arrayContent.indexOf(itemMatch[0]);
-                  const exactIndex = metaStartIndex + arrayStartIndex + middlewareInArrayIndex + 1; // +1 to skip the opening quote
-
-                  const before = content.slice(0, exactIndex);
-                  const line = before.split('\n').length - 1;
-                  const col = exactIndex - before.lastIndexOf('\n') - 1;
-
-                  const uri = vscode.Uri.file(pageFile);
-                  const range = new vscode.Range(line, col, line, col + middlewareName.length);
-                  references.push(new vscode.Location(uri, range));
-                }
-              }
-            }
-          } catch (e) {
-            // Ignore errors
+            results.push(new vscode.Location(
+              uri,
+              new vscode.Range(
+                new vscode.Position(start.line, start.character),
+                new vscode.Position(end.line, end.character)
+              )
+            ));
           }
         }
       }
     }
 
-    return references;
+    return results;
   }
 
   /**
@@ -1158,60 +1169,60 @@ class Nuxt3CodeLensProvider implements vscode.CodeLensProvider {
    */
   private async findStoreReferences(storeName: string): Promise<vscode.Location[]> {
     try {
-      const references: vscode.Location[] = [];
-
+      // Normaliser le nom du store pour générer le hook
       const storeHookName = `use${storeName
         .split(/[-_]/)
         .map(s => s.charAt(0).toUpperCase() + s.slice(1))
         .join('')}Store`;
 
-      if (!this.nuxtProjectRoot) return references;
+      // Utiliser findFiles pour trouver tous les fichiers pertinents, comme pour les layouts
+      const uris = await vscode.workspace.findFiles('**/*.{vue,js,ts}', '**/node_modules/**');
+      const results: vscode.Location[] = [];
 
-      // 1. Recherche précise dans tous les fichiers
-      const allFiles = await this.getFilesRecursively(this.nuxtProjectRoot, ['.vue', '.ts', '.js']);
-
-      for (const file of allFiles) {
-        // Exclusion des dossiers spécifiques
-        if (file.includes('node_modules') || file.includes('.nuxt') ||
-          file.includes('.output') || file.includes('dist')) {
+      for (const uri of uris) {
+        // Exclure les dossiers non pertinents
+        if (uri.fsPath.includes('node_modules') || uri.fsPath.includes('.nuxt') ||
+          uri.fsPath.includes('.output') || uri.fsPath.includes('dist')) {
           continue;
         }
 
+        let content: string;
         try {
-          const content = fs.readFileSync(file, 'utf-8');
+          content = fs.readFileSync(uri.fsPath, 'utf-8');
+        } catch {
+          continue;
+        }
 
-          // 2. Pattern principal plus strict
-          const mainPattern = new RegExp(
-            `\\b${storeHookName}\\s*\\([^)]*\\)`,
-            'g'
-          );
+        // Pattern principal pour trouver les usages du store
+        const regex = new RegExp(`\\b${storeHookName}\\b`, 'g');
+        let match;
 
-          // 3. Recherche des matches exacts
-          let match;
-          while ((match = mainPattern.exec(content)) !== null) {
-            // Vérification que ce n'est pas une déclaration (defineStore)
-            if (content.lastIndexOf('defineStore', match.index) < match.index) {
-              const index = match.index;
-              const before = content.slice(0, index);
-              const line = before.split('\n').length - 1;
-              const lineStart = before.lastIndexOf('\n') + 1;
-              const col = index - lineStart;
+        while ((match = regex.exec(content)) !== null) {
+          // Vérifier que ce n'est pas une définition de store
+          const lineStart = content.lastIndexOf('\n', match.index) + 1;
+          const lineEnd = content.indexOf('\n', match.index);
+          const line = content.substring(lineStart, lineEnd !== -1 ? lineEnd : content.length);
 
-              references.push(new vscode.Location(
-                vscode.Uri.file(file),
-                new vscode.Range(
-                  new vscode.Position(line, col),
-                  new vscode.Position(line, col + match[0].length)
-                )
-              ));
-            }
+          // Si la ligne contient 'defineStore', c'est probablement une définition, pas une référence
+          if (line.includes('defineStore')) {
+            continue;
           }
-        } catch (e) {
-          console.debug(`Error reading ${file}:`, e);
+
+          // Calcul de la position à la main, comme dans findLayoutReferences
+          const start = this.indexToPosition(content, match.index);
+          const end = this.indexToPosition(content, match.index + match[0].length);
+
+          results.push(new vscode.Location(
+            uri,
+            new vscode.Range(
+              new vscode.Position(start.line, start.character),
+              new vscode.Position(end.line, end.character)
+            )
+          ));
         }
       }
 
-      return references;
+      return results;
     } catch (e) {
       console.error('Error in findStoreReferences:', e);
       return [];
@@ -1287,104 +1298,109 @@ class Nuxt3CodeLensProvider implements vscode.CodeLensProvider {
  */
   private async findUtilsReferences(document: vscode.TextDocument, name: string, position: vscode.Position): Promise<vscode.Location[]> {
     try {
-      // Recherche standard des références via VS Code
-      const references = await vscode.commands.executeCommand<vscode.Location[]>(
+      const results: vscode.Location[] = [];
+
+      // Utiliser directement findFiles comme dans findLayoutReferences
+      const uris = await vscode.workspace.findFiles('**/*.{vue,js,ts}', '**/node_modules/**');
+
+      // Première passe : utiliser le provider de références natif de VS Code
+      const nativeReferences = await vscode.commands.executeCommand<vscode.Location[]>(
         'vscode.executeReferenceProvider',
         document.uri,
         new vscode.Position(position.line, position.character + name.length - 1)
       ) || [];
 
-      // Filtrer les fichiers générés
-      const filteredReferences = references.filter(ref =>
-        !ref.uri.fsPath.includes('.nuxt') && // Exclure les fichiers générés par Nuxt
-        !ref.uri.fsPath.includes('node_modules') && // Exclure les dépendances
-        !(ref.uri.fsPath === document.uri.fsPath &&
-          ref.range.start.line === position.line) // Exclure la ligne de l'exportation
-      );
-
-      // Si nous avons un projet Nuxt, rechercher d'autres références
-      if (this.nuxtProjectRoot) {
-        // Obtenir tous les fichiers du projet
-        const allFiles = await this.getFilesRecursively(this.nuxtProjectRoot, ['.vue', '.ts', '.js']);
-
-        for (const file of allFiles) {
-          if (file.includes('node_modules') || file.includes('.nuxt') ||
-            file.includes('.output') || file.includes('dist')) {
-            continue;
-          }
-
-          if (file === document.uri.fsPath) continue;
-
-          try {
-            const content = fs.readFileSync(file, 'utf-8');
-
-            // Rechercher les imports précis de ce module
-            const importRegex = new RegExp(`import\\s+{[^}]*\\b${name}\\b[^}]*}\\s+from\\s+(['"\`][^'\`"]*['"\`])`, 'g');
-            let match: RegExpExecArray | null;
-
-            while ((match = importRegex.exec(content))) {
-              const importPath = match[1].slice(1, -1); // Enlever les guillemets
-
-              // Vérifier si l'import correspond à notre fichier
-              if (this.isImportPointingToFile(importPath, file, document.uri.fsPath)) {
-                const index = match.index;
-                const nameIndex = content.indexOf(name, index);
-
-                if (nameIndex !== -1) {
-                  const before = content.slice(0, nameIndex);
-                  const line = before.split('\n').length - 1;
-                  const lineStartIndex = before.lastIndexOf('\n') + 1;
-                  const col = nameIndex - lineStartIndex;
-
-                  const uri = vscode.Uri.file(file);
-                  const range = new vscode.Range(
-                    new vscode.Position(line, col),
-                    new vscode.Position(line, col + name.length)
-                  );
-
-                  filteredReferences.push(new vscode.Location(uri, range));
-                }
-              }
-            }
-
-            // Rechercher également les utilisations directes du nom
-            const usageRegex = new RegExp(`(?:^|[^\\w.])\\b${name}\\b(?!\\s*:)`, 'g');
-            while ((match = usageRegex.exec(content))) {
-              // Ignorer les imports déjà traités
-              const beforeMatch = content.substring(Math.max(0, match.index - 20), match.index);
-
-              // Ignorer si c'est dans un import ou une déclaration de variable
-              if (beforeMatch.includes('import') ||
-                beforeMatch.includes('const') ||
-                beforeMatch.includes('let') ||
-                beforeMatch.includes('var') ||
-                beforeMatch.includes('function')) {
-                continue;
-              }
-
-              if (!content.substring(Math.max(0, match.index - 20), match.index).includes('import')) {
-                const index = match.index;
-                const before = content.slice(0, index);
-                const line = before.split('\n').length - 1;
-                const lineStartIndex = before.lastIndexOf('\n') + 1;
-                const col = index - lineStartIndex;
-
-                const uri = vscode.Uri.file(file);
-                const range = new vscode.Range(
-                  new vscode.Position(line, col),
-                  new vscode.Position(line, col + name.length)
-                );
-
-                filteredReferences.push(new vscode.Location(uri, range));
-              }
-            }
-          } catch (e) {
-            // Ignorer les erreurs
-          }
+      // Ajouter les références natives filtrées
+      for (const ref of nativeReferences) {
+        if (!ref.uri.fsPath.includes('.nuxt') &&
+          !ref.uri.fsPath.includes('node_modules') &&
+          !ref.uri.fsPath.includes('.output') &&
+          !ref.uri.fsPath.includes('dist') &&
+          !(ref.uri.fsPath === document.uri.fsPath && ref.range.start.line === position.line)) {
+          results.push(ref);
         }
       }
 
-      return filteredReferences;
+      // Deuxième passe : recherche dans tous les fichiers du workspace
+      for (const uri of uris) {
+        // Exclure les fichiers non pertinents
+        if (uri.fsPath.includes('node_modules') ||
+          uri.fsPath.includes('.nuxt') ||
+          uri.fsPath.includes('.output') ||
+          uri.fsPath.includes('dist')) {
+          continue;
+        }
+
+        // Ignorer le fichier source
+        if (uri.fsPath === document.uri.fsPath) continue;
+
+        let content: string;
+        try {
+          content = fs.readFileSync(uri.fsPath, 'utf-8');
+        } catch {
+          continue;
+        }
+
+        // Rechercher les imports
+        const importRegex = new RegExp(`import\\s+{[^}]*\\b${name}\\b[^}]*}\\s+from\\s+(['"\`][^'\`"]*['"\`])`, 'g');
+        let match;
+
+        while ((match = importRegex.exec(content)) !== null) {
+          const importPath = match[1].slice(1, -1); // Enlever les guillemets
+
+          // Vérifier si l'import pointe vers notre fichier
+          if (this.isImportPointingToFile(importPath, uri.fsPath, document.uri.fsPath)) {
+            const nameIndex = content.indexOf(name, match.index);
+
+            if (nameIndex !== -1) {
+              // Calcul de la position à la main, comme dans findLayoutReferences
+              const start = this.indexToPosition(content, nameIndex);
+              const end = this.indexToPosition(content, nameIndex + name.length);
+
+              results.push(new vscode.Location(
+                uri,
+                new vscode.Range(
+                  new vscode.Position(start.line, start.character),
+                  new vscode.Position(end.line, end.character)
+                )
+              ));
+            }
+          }
+        }
+
+        // Rechercher les utilisations directes (non imports)
+        const usageRegex = new RegExp(`(?:^|[^\\w.])\\b${name}\\b(?!\\s*:)`, 'g');
+
+        while ((match = usageRegex.exec(content)) !== null) {
+          const matchStart = match.index + (match[0].length - name.length);
+
+          // Vérifier contexte (éviter imports/déclarations)
+          const lineStart = content.lastIndexOf('\n', matchStart) + 1;
+          const lineEnd = content.indexOf('\n', matchStart);
+          const line = content.substring(lineStart, lineEnd !== -1 ? lineEnd : content.length);
+
+          // Ignorer si c'est dans un import ou une déclaration
+          if (line.includes('import ') ||
+            line.match(/\b(const|let|var|function)\s/) ||
+            line.includes('export ')) {
+            continue;
+          }
+
+          // Calcul de la position à la main
+          const start = this.indexToPosition(content, matchStart);
+          const end = this.indexToPosition(content, matchStart + name.length);
+
+          results.push(new vscode.Location(
+            uri,
+            new vscode.Range(
+              new vscode.Position(start.line, start.character),
+              new vscode.Position(end.line, end.character)
+            )
+          ));
+        }
+      }
+
+      return results;
     } catch (e) {
       console.error('Error finding utils references:', e);
       return [];
