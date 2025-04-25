@@ -654,7 +654,7 @@ class Nuxt3CodeLensProvider implements vscode.CodeLensProvider {
             const content = fs.readFileSync(file, 'utf-8');
 
             // Chercher les utilisations du composable avec surlignage précis
-            const usageRegex = new RegExp(`\\b(${name}\\s*\\()`, 'g');
+            const usageRegex = new RegExp(`\\b(${name}\\s*\\(|${name}\\s*<)`, 'g'); // Inclut les appels avec génériques comme `<T>`
             let match: RegExpExecArray | null;
 
             while ((match = usageRegex.exec(content))) {
