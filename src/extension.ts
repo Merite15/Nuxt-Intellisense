@@ -76,7 +76,7 @@ class Nuxt3CodeLensProvider implements vscode.CodeLensProvider {
 
         lenses.push(
           new vscode.CodeLens(range, {
-            title: `🔄 ${referenceCount} référence${referenceCount === 1 ? '' : 's'} du composable${autoImportInfo ? ` (${autoImportInfo})` : ''}`,
+            title: `🔄 ${referenceCount} reference${referenceCount > 1 ? 's' : ''}`,
             command: 'editor.action.showReferences',
             arguments: [
               document.uri,
@@ -117,7 +117,7 @@ class Nuxt3CodeLensProvider implements vscode.CodeLensProvider {
 
           lenses.push(
             new vscode.CodeLens(range, {
-              title: `🧩 ${referenceCount} utilisation${referenceCount === 1 ? '' : 's'} du composant${autoImportInfo ? ` (${autoImportInfo})` : ''}`,
+              title: `🧩 ${referenceCount} reference${referenceCount > 1 ? 's' : ''}`,
               command: 'editor.action.showReferences',
               arguments: [
                 document.uri,
@@ -145,7 +145,7 @@ class Nuxt3CodeLensProvider implements vscode.CodeLensProvider {
 
             lenses.push(
               new vscode.CodeLens(range, {
-                title: `🧩 ${referenceCount} utilisation${referenceCount === 1 ? '' : 's'} du composant`,
+                title: `🧩 ${referenceCount} reference${referenceCount > 1 ? 's' : ''}`,
                 command: 'editor.action.showReferences',
                 arguments: [
                   document.uri,
@@ -174,7 +174,7 @@ class Nuxt3CodeLensProvider implements vscode.CodeLensProvider {
 
             lenses.push(
               new vscode.CodeLens(range, {
-                title: `⚡ ${referenceCount} utilisation${referenceCount === 1 ? '' : 's'} du composant Nuxt`,
+                title: `⚡ ${referenceCount} reference${referenceCount > 1 ? 's' : ''}`,
                 command: 'editor.action.showReferences',
                 arguments: [
                   document.uri,
@@ -207,7 +207,7 @@ class Nuxt3CodeLensProvider implements vscode.CodeLensProvider {
 
             lenses.push(
               new vscode.CodeLens(range, {
-                title: `🧩 ${referenceCount} utilisation${referenceCount === 1 ? '' : 's'} du composant${autoImportInfo ? ` (${autoImportInfo})` : ''}`,
+                title: `🧩 ${referenceCount} reference${referenceCount > 1 ? 's' : ''}`,
                 command: 'editor.action.showReferences',
                 arguments: [
                   document.uri,
@@ -239,7 +239,7 @@ class Nuxt3CodeLensProvider implements vscode.CodeLensProvider {
 
         lenses.push(
           new vscode.CodeLens(range, {
-            title: `🔌 ${referenceCount} utilisation${referenceCount === 1 ? '' : 's'} du plugin`,
+            title: `🔌 ${referenceCount} reference${referenceCount > 1 ? 's' : ''}`,
             command: 'editor.action.showReferences',
             arguments: [
               document.uri,
@@ -269,7 +269,7 @@ class Nuxt3CodeLensProvider implements vscode.CodeLensProvider {
         if (isGlobal) {
           lenses.push(
             new vscode.CodeLens(range, {
-              title: `🌍 Middleware global (appliqué sur toutes les routes)`,
+              title: `🌍 Global Middleware`,
               command: ''
             })
           );
@@ -280,7 +280,7 @@ class Nuxt3CodeLensProvider implements vscode.CodeLensProvider {
 
           lenses.push(
             new vscode.CodeLens(range, {
-              title: `🔗 ${referenceCount} utilisation${referenceCount === 1 ? '' : 's'} du middleware`,
+              title: `🔗 ${referenceCount} reference${referenceCount > 1 ? 's' : ''}`,
               command: 'editor.action.showReferences',
               arguments: [
                 document.uri,
@@ -312,14 +312,14 @@ class Nuxt3CodeLensProvider implements vscode.CodeLensProvider {
         if (layoutName === 'default') {
           lenses.push(
             new vscode.CodeLens(range, {
-              title: `🖼️ Layout par défaut (utilisé implicitement)`,
+              title: `🖼️ Default Layout`,
               command: ''
             })
           );
         } else if (referenceCount > 0) {
           lenses.push(
             new vscode.CodeLens(range, {
-              title: `🖼️ ${referenceCount} utilisation${referenceCount === 1 ? '' : 's'} du layout`,
+              title: `🖼️ ${referenceCount} reference${referenceCount > 1 ? 's' : ''}`,
               command: 'editor.action.showReferences',
               arguments: [
                 document.uri,
@@ -351,7 +351,7 @@ class Nuxt3CodeLensProvider implements vscode.CodeLensProvider {
 
           lenses.push(
             new vscode.CodeLens(range, {
-              title: `🗃️ ${referenceCount} utilisation${referenceCount === 1 ? '' : 's'} du store`,
+              title: `🗃️ ${referenceCount} reference${referenceCount > 1 ? 's' : ''}`,
               command: 'editor.action.showReferences',
               arguments: [
                 document.uri,
@@ -403,7 +403,7 @@ class Nuxt3CodeLensProvider implements vscode.CodeLensProvider {
 
         lenses.push(
           new vscode.CodeLens(range, {
-            title: `${emoji} ${referenceCount} référence${referenceCount === 1 ? '' : 's'} de ${typeLabel}`,
+            title: `${emoji} ${referenceCount} reference${referenceCount > 1 ? 's' : ''}`,
             command: 'editor.action.showReferences',
             arguments: [
               document.uri,
@@ -639,7 +639,11 @@ class Nuxt3CodeLensProvider implements vscode.CodeLensProvider {
       ) || [];
 
       // Filtrer les fichiers générés par Nuxt
-      const filteredReferences = references.filter(ref => !ref.uri.fsPath.includes('.nuxt'));
+      const filteredReferences = references.filter(ref =>
+        !ref.uri.fsPath.includes('.nuxt') &&
+        !(ref.uri.fsPath === document.uri.fsPath &&
+          ref.range.start.line === position.line)
+      );
 
       // Si nous avons un projet Nuxt, rechercher les auto-importations
       if (this.nuxtProjectRoot) {
@@ -1292,8 +1296,10 @@ class Nuxt3CodeLensProvider implements vscode.CodeLensProvider {
 
       // Filtrer les fichiers générés
       const filteredReferences = references.filter(ref =>
-        !ref.uri.fsPath.includes('.nuxt') &&
-        !ref.uri.fsPath.includes('node_modules')
+        !ref.uri.fsPath.includes('.nuxt') && // Exclure les fichiers générés par Nuxt
+        !ref.uri.fsPath.includes('node_modules') && // Exclure les dépendances
+        !(ref.uri.fsPath === document.uri.fsPath &&
+          ref.range.start.line === position.line) // Exclure la ligne de l'exportation
       );
 
       // Si nous avons un projet Nuxt, rechercher d'autres références
