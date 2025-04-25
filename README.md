@@ -25,7 +25,7 @@ Each count links to the built-in **"Find References"** functionality of VS Code,
 1. Clone this repository:
 
    ```bash
-   git clone https://github.com/your-username/nuxt-intellisense
+   git clone https://github.com/merite15/nuxt-intellisense
    cd nuxt-intellisense
    ```
 
@@ -61,15 +61,13 @@ This will generate a `.vsix` file that you can install or share.
    vsce publish
    ```
 
-> ⚠️ You'll need a Personal Access Token (PAT) from Azure DevOps to publish. You can generate one from your [Azure DevOps account](https://dev.azure.com).
-
 ## 📚 Example Use Case
 
 Here's an example of how it looks in your editor:
 
 ```ts
-// composables/useDriver.ts
-export const useDriver = () => { ... } // → 3 references
+// 1 utilisation du composable
+export const useDriver = () => { ... }
 ```
 
 ```vue
@@ -84,7 +82,6 @@ You’ll instantly see where `useDriver` is used, right from the definition.
 
 - TypeScript
 - VS Code Extension API
-- AST Parsing via `@babel/parser` or TypeScript compiler API (depending on setup)
 
 ## 💡 Why?
 

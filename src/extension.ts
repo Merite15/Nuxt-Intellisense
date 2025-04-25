@@ -330,25 +330,44 @@ class Nuxt3CodeLensProvider implements vscode.CodeLensProvider {
         const pos = document.positionAt(match.index);
         const range = new vscode.Range(pos.line, 0, pos.line, 0);
 
-        // Rechercher les références
-        const references = await this.findStoreReferences(storeName);
-        const referenceCount = references.length;
+        // Vérification que c'est bien un fichier de store
+        if (document.uri.fsPath.includes(path.sep + 'stores' + path.sep)) {
+          // Obtenir les références PRÉCISES
+          const preciseReferences = await this.findStoreReferences(storeName);
+          const uniqueReferences = this.removeDuplicateReferences(preciseReferences);
+          const referenceCount = uniqueReferences.length;
 
-        lenses.push(
-          new vscode.CodeLens(range, {
-            title: `🗃️ ${referenceCount} utilisation${referenceCount === 1 ? '' : 's'} du store`,
-            command: 'editor.action.showReferences',
-            arguments: [
-              document.uri,
-              new vscode.Position(pos.line, match[0].indexOf(storeName)),
-              references
-            ]
-          })
-        );
+          lenses.push(
+            new vscode.CodeLens(range, {
+              title: `🗃️ ${referenceCount} utilisation${referenceCount === 1 ? '' : 's'} du store`,
+              command: 'editor.action.showReferences',
+              arguments: [
+                document.uri,
+                new vscode.Position(pos.line, match[0].indexOf(storeName)),
+                uniqueReferences
+              ]
+            })
+          );
+        }
       }
     }
 
     return lenses;
+  }
+
+  private removeDuplicateReferences(references: vscode.Location[]): vscode.Location[] {
+    const uniqueRefs: vscode.Location[] = [];
+    const seen = new Set<string>();
+
+    for (const ref of references) {
+      const key = `${ref.uri.fsPath}:${ref.range.start.line}:${ref.range.start.character}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        uniqueRefs.push(ref);
+      }
+    }
+
+    return uniqueRefs;
   }
 
   /**
@@ -414,6 +433,11 @@ class Nuxt3CodeLensProvider implements vscode.CodeLensProvider {
       await this.scanComposablesDirectory(dir);
     }
 
+    // Analyser les stores
+    const storeDirs = await this.findAllDirsByName('stores');
+    for (const dir of storeDirs) {
+      await this.scanStoresDirectory(dir);
+    }
   }
 
   /**
@@ -477,6 +501,36 @@ class Nuxt3CodeLensProvider implements vscode.CodeLensProvider {
       }
     }
     this.autoImportCache.set('composables', composableInfos);
+  }
+
+  /**
+   * Analyser le répertoire des stores
+   */
+  private async scanStoresDirectory(dir: string): Promise<void> {
+    if (!fs.existsSync(dir)) return;
+
+    const storeInfos: NuxtComponentInfo[] = [];
+    const files = await this.getFilesRecursively(dir, ['.ts', '.js']);
+
+    for (const file of files) {
+      try {
+        const content = fs.readFileSync(file, 'utf-8');
+        const defineStoreRegex = /defineStore\s*\(\s*(['"`])(.*?)\1/g;
+        let match: RegExpExecArray | null;
+
+        while ((match = defineStoreRegex.exec(content))) {
+          storeInfos.push({
+            name: match[2],
+            path: file,
+            isAutoImported: true
+          });
+        }
+      } catch (e) {
+        console.error(`Error reading store file ${file}:`, e);
+      }
+    }
+
+    this.autoImportCache.set('stores', storeInfos);
   }
 
   /**
@@ -1054,68 +1108,60 @@ class Nuxt3CodeLensProvider implements vscode.CodeLensProvider {
     try {
       const references: vscode.Location[] = [];
 
-      // Nous recherchons le motif "useXxxStore" où Xxx est le storeName avec une première lettre majuscule
-      const storeHookName = `use${storeName.charAt(0).toUpperCase() + storeName.slice(1)}Store`;
+      const storeHookName = `use${storeName
+        .split(/[-_]/)
+        .map(s => s.charAt(0).toUpperCase() + s.slice(1))
+        .join('')}Store`;
 
-      // Chercher dans tous les fichiers du projet
-      if (this.nuxtProjectRoot) {
-        const allFiles = await this.getFilesRecursively(this.nuxtProjectRoot, ['.vue', '.ts', '.js']);
+      if (!this.nuxtProjectRoot) return references;
 
-        for (const file of allFiles) {
-          try {
-            const content = fs.readFileSync(file, 'utf-8');
+      // 1. Recherche précise dans tous les fichiers
+      const allFiles = await this.getFilesRecursively(this.nuxtProjectRoot, ['.vue', '.ts', '.js']);
 
-            // Chercher des utilisations du store avec surlignage précis
-            const storeRegex = new RegExp(`(${storeHookName}\\s*\\()`, 'g');
-            let match: RegExpExecArray | null;
+      for (const file of allFiles) {
+        // Exclusion des dossiers spécifiques
+        if (file.includes('node_modules') || file.includes('.nuxt') ||
+          file.includes('.output') || file.includes('dist')) {
+          continue;
+        }
 
-            while ((match = storeRegex.exec(content))) {
-              const matchText = match[1];
+        try {
+          const content = fs.readFileSync(file, 'utf-8');
+
+          // 2. Pattern principal plus strict
+          const mainPattern = new RegExp(
+            `\\b${storeHookName}\\s*\\([^)]*\\)`,
+            'g'
+          );
+
+          // 3. Recherche des matches exacts
+          let match;
+          while ((match = mainPattern.exec(content)) !== null) {
+            // Vérification que ce n'est pas une déclaration (defineStore)
+            if (content.lastIndexOf('defineStore', match.index) < match.index) {
               const index = match.index;
               const before = content.slice(0, index);
               const line = before.split('\n').length - 1;
+              const lineStart = before.lastIndexOf('\n') + 1;
+              const col = index - lineStart;
 
-              // Calculer la colonne exacte
-              const lineStartIndex = before.lastIndexOf('\n') + 1;
-              const col = index - lineStartIndex;
-
-              const uri = vscode.Uri.file(file);
-              const range = new vscode.Range(
-                new vscode.Position(line, col),
-                new vscode.Position(line, col + matchText.length)
-              );
-
-              references.push(new vscode.Location(uri, range));
+              references.push(new vscode.Location(
+                vscode.Uri.file(file),
+                new vscode.Range(
+                  new vscode.Position(line, col),
+                  new vscode.Position(line, col + match[0].length)
+                )
+              ));
             }
-
-            // Chercher également les destructurations: const { x } = useStore()
-            const destructureRegex = new RegExp(`const\\s+\\{[^}]*\\}\\s*=\\s*(${storeHookName}\\s*\\()`, 'g');
-            while ((match = destructureRegex.exec(content))) {
-              const matchText = match[1];
-              const index = match.index + match[0].indexOf(storeHookName);
-              const before = content.slice(0, index);
-              const line = before.split('\n').length - 1;
-
-              // Calculer la colonne exacte
-              const lineStartIndex = before.lastIndexOf('\n') + 1;
-              const col = index - lineStartIndex;
-
-              const uri = vscode.Uri.file(file);
-              const range = new vscode.Range(
-                new vscode.Position(line, col),
-                new vscode.Position(line, col + matchText.length)
-              );
-
-              references.push(new vscode.Location(uri, range));
-            }
-          } catch (e) {
-            // Ignorer les erreurs
           }
+        } catch (e) {
+          console.debug(`Error reading ${file}:`, e);
         }
       }
 
       return references;
     } catch (e) {
+      console.error('Error in findStoreReferences:', e);
       return [];
     }
   }
