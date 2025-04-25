@@ -1,32 +1,95 @@
 # Nuxt Intellisense
 
-🎯 Une extension Visual Studio Code pour Nuxt 3 qui affiche automatiquement le nombre de références à vos composants, fonctions et composables.
+🌟 A Visual Studio Code extension for Nuxt 3 that **automatically displays the number of references** to your components, functions, and composables — directly in your editor.
 
-## ✨ Fonctionnalités
+## ✨ Features
 
-- Affiche `X references` au-dessus des fonctions `export` ou `defineComponent()`
-- Supporte `.vue` et `.ts`
-- Clique sur la ligne pour afficher les références dans l’explorateur
-- Parfait pour les projets Nuxt 3, composables, et code en architecture modulaire
+- 📌 Displays `X references` above exported functions and `defineComponent()` declarations
+- 📂 Supports both `.vue` and `.ts` files
+- 🗁 Clickable — jump to all references in the built-in VS Code references panel
+- 🧠 Tailored for Nuxt 3 projects, modular architecture, and clean composable usage
+- ⚡️ Lightweight and non-intrusive — works seamlessly as you code
 
-## 🔧 Installation
+## 🧪 How It Works
 
-1. Clone ce repo
-2. Ouvre dans VS Code
-3. Lancer en mode debug (`F5`)
-4. Sur un fichier `.vue`, ajoute une fonction exportée ou un composant
+This extension parses your Nuxt 3 codebase and provides **inline reference counts** for key exports:
 
-## 📦 Packaging
+- `export const myComposable = ...`
+- `export default defineComponent({ ... })`
+- `defineComponent(() => { ... })`
 
-Pour publier :
+Each count links to the built-in **"Find References"** functionality of VS Code, making it easier to navigate large codebases with composables and components split across modules.
+
+## 🚀 Installation (Development)
+
+1. Clone this repository:
+
+   ```bash
+   git clone https://github.com/your-username/nuxt-intellisense
+   cd nuxt-intellisense
+   ```
+
+2. Open the folder in **Visual Studio Code**.
+
+3. Press `F5` to launch the extension in a new **Extension Development Host** window.
+
+4. Open a `.vue` or `.ts` file and export a function or component to see reference counts in action.
+
+## 📆 Packaging
+
+To package the extension for distribution:
 
 ```bash
 npm install -g vsce
 vsce package
 ```
 
-Et pour publier sur le marketplace (besoin d’un token) :
+This will generate a `.vsix` file that you can install or share.
 
-```bash
-vsce publish
+## 💲 Publishing to the Marketplace
+
+1. Make sure you’ve created a **publisher** on the [Visual Studio Marketplace](https://marketplace.visualstudio.com/manage).
+
+2. Login using `vsce`:
+
+   ```bash
+   vsce login <publisher-name>
+   ```
+
+3. Publish the extension:
+   ```bash
+   vsce publish
+   ```
+
+> ⚠️ You'll need a Personal Access Token (PAT) from Azure DevOps to publish. You can generate one from your [Azure DevOps account](https://dev.azure.com).
+
+## 📚 Example Use Case
+
+Here's an example of how it looks in your editor:
+
+```ts
+// composables/useDriver.ts
+export const useDriver = () => { ... } // → 3 references
 ```
+
+```vue
+<script setup lang="ts">
+const driver = useDriver();
+</script>
+```
+
+You’ll instantly see where `useDriver` is used, right from the definition.
+
+## 🛠 Tech Stack
+
+- TypeScript
+- VS Code Extension API
+- AST Parsing via `@babel/parser` or TypeScript compiler API (depending on setup)
+
+## 💡 Why?
+
+In large Nuxt 3 codebases, especially with modular architecture and heavy use of composables, tracking references becomes hard. This tool bridges that gap, giving you **context-aware visibility** at a glance.
+
+## 📬 Feedback & Contributions
+
+We welcome contributions, suggestions, and feedback! Feel free to open issues or submit pull requests.

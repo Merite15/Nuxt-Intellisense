@@ -1,0 +1,9 @@
+.vscode/**
+node_modules/**
+src/**
+test/**
+coverage/**
+*.map
+*.ts
+README.md
+tsconfig.json

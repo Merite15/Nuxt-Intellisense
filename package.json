@@ -1,9 +1,10 @@
 {
   "name": "nuxt-intellisense",
+  "license": "MIT",
   "displayName": "Nuxt intellisense",
-  "description": "Affiche les références des composants, composables etc... utilisés dans vos fichiers  Nuxt 3.",
+  "description": "Displays references to components, composables, and other exports used in your Nuxt 3 files.",
   "version": "0.1.0",
-  "publisher": "merite-k",
+  "publisher": "MeriteK",
   "engines": {
     "vscode": "^1.60.0"
   },
@@ -32,7 +33,7 @@
     "vuejs",
     "vuejs3"
   ],
-  "icon": "images/icon.png",
+  "icon": "images/logo.png",
   "repository": {
     "type": "git",
     "url": "https://github.com/Merite15/Nuxt-Intelliphense"
@@ -50,49 +51,49 @@
         "nuxt-intellisense.enable": {
           "type": "boolean",
           "default": true,
-          "description": "Activer/désactiver les CodeLens pour Nuxt 3"
+          "description": "Enable or disable CodeLens for Nuxt 3"
         },
         "nuxt-intellisense.showComposables": {
           "type": "boolean",
           "default": true,
-          "description": "Afficher les CodeLens pour les composables"
+          "description": "Show CodeLens for composables"
         },
         "nuxt-intellisense.showComponents": {
           "type": "boolean",
           "default": true,
-          "description": "Afficher les CodeLens pour les composants"
+          "description": "Show CodeLens for components"
         },
         "nuxt-intellisense.showPlugins": {
           "type": "boolean",
           "default": true,
-          "description": "Afficher les CodeLens pour les plugins"
+          "description": "Show CodeLens for plugins"
         },
         "nuxt-intellisense.showMiddleware": {
           "type": "boolean",
           "default": true,
-          "description": "Afficher les CodeLens pour les middleware"
+          "description": "Show CodeLens for middleware"
         },
         "nuxt-intellisense.showLayouts": {
           "type": "boolean",
           "default": true,
-          "description": "Afficher les CodeLens pour les layouts"
+          "description": "Show CodeLens for layouts"
         },
         "nuxt-intellisense.showStores": {
           "type": "boolean",
           "default": true,
-          "description": "Afficher les CodeLens pour les stores"
+          "description": "Show CodeLens for stores"
         },
         "nuxt-intellisense.cacheUpdateInterval": {
           "type": "number",
           "default": 30000,
-          "description": "Intervalle de mise à jour du cache en millisecondes"
+          "description": "Cache update interval in milliseconds"
         }
       }
     },
     "commands": [
       {
         "command": "nuxt-intellisense.refreshAutoImportCache",
-        "title": "Nuxt Intellisense: Actualiser le cache des auto-importations"
+        "title": "Nuxt Intellisense: Refresh auto-import cache"
       }
     ]
   },
