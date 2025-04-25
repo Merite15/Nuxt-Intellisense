@@ -513,13 +513,14 @@ class Nuxt3CodeLensProvider implements vscode.CodeLensProvider {
     }
 
     const componentInfos: NuxtComponentInfo[] = [];
-    const files = await this.getFilesRecursively(dir, ['.vue']);
+    const relativePattern = new vscode.RelativePattern(dir, '**/*.vue');
+    const files = await vscode.workspace.findFiles(relativePattern);
 
     for (const file of files) {
-      const componentName = path.basename(file, '.vue');
+      const componentName = path.basename(file.fsPath, '.vue');
       componentInfos.push({
         name: componentName,
-        path: file,
+        path: file.fsPath,
         isAutoImported: true
       });
     }
@@ -534,14 +535,16 @@ class Nuxt3CodeLensProvider implements vscode.CodeLensProvider {
     if (!fs.existsSync(dir)) {
       return;
     }
+
     const composableInfos: NuxtComponentInfo[] = [];
-    const files = await this.getFilesRecursively(dir, ['.ts', '.js']);
+    const relativePattern = new vscode.RelativePattern(dir, '**/*.{ts,js}');
+    const files = await vscode.workspace.findFiles(relativePattern);
 
     for (const file of files) {
       try {
-        const content = fs.readFileSync(file, 'utf-8');
+        const content = fs.readFileSync(file.fsPath, 'utf-8');
         // Ignorer complètement les fichiers qui ne sont pas dans le dossier composables
-        if (!file.includes(path.sep + 'composables' + path.sep)) {
+        if (!file.fsPath.includes(path.sep + 'composables' + path.sep)) {
           continue;
         }
 
@@ -556,7 +559,7 @@ class Nuxt3CodeLensProvider implements vscode.CodeLensProvider {
           const name = match[2];
           composableInfos.push({
             name: name,
-            path: file,
+            path: file.fsPath,
             isAutoImported: true
           });
         }
@@ -574,23 +577,24 @@ class Nuxt3CodeLensProvider implements vscode.CodeLensProvider {
     if (!fs.existsSync(dir)) return;
 
     const storeInfos: NuxtComponentInfo[] = [];
-    const files = await this.getFilesRecursively(dir, ['.ts', '.js']);
+    const relativePattern = new vscode.RelativePattern(dir, '**/*.{ts,js}');
+    const files = await vscode.workspace.findFiles(relativePattern);
 
     for (const file of files) {
       try {
-        const content = fs.readFileSync(file, 'utf-8');
+        const content = fs.readFileSync(file.fsPath, 'utf-8');
         const defineStoreRegex = /defineStore\s*\(\s*(['"`])(.*?)\1/g;
         let match: RegExpExecArray | null;
 
         while ((match = defineStoreRegex.exec(content))) {
           storeInfos.push({
             name: match[2],
-            path: file,
+            path: file.fsPath,
             isAutoImported: true
           });
         }
       } catch (e) {
-        console.error(`Error reading store file ${file}:`, e);
+        console.error(`Error reading store file ${file.fsPath}:`, e);
       }
     }
 
@@ -1255,16 +1259,17 @@ class Nuxt3CodeLensProvider implements vscode.CodeLensProvider {
       for (const dir of dirs) {
         if (!fs.existsSync(dir)) continue;
 
-        const files = await this.getFilesRecursively(dir, ['.ts', '.js']);
+        const relativePattern = new vscode.RelativePattern(dir, '**/*.{ts,js}');
+        const files = await vscode.workspace.findFiles(relativePattern);
 
         for (const file of files) {
           try {
-            const content = fs.readFileSync(file, 'utf-8');
+            const content = fs.readFileSync(file.fsPath, 'utf-8');
 
             // Éviter de scanner les fichiers qui contiennent des définitions de store ou de composables
             if (content.includes('defineStore') ||
-              file.includes(path.sep + 'composables' + path.sep) ||
-              file.includes(path.sep + 'stores' + path.sep)) {
+              file.fsPath.includes(path.sep + 'composables' + path.sep) ||
+              file.fsPath.includes(path.sep + 'stores' + path.sep)) {
               continue;
             }
 
@@ -1278,13 +1283,13 @@ class Nuxt3CodeLensProvider implements vscode.CodeLensProvider {
 
               utilsInfos.push({
                 name: name,
-                path: file,
+                path: file.fsPath,
                 isAutoImported: false, // Les utilitaires ne sont généralement pas auto-importés par défaut
                 exportType: exportType // Stocker le type d'export pour différencier
               });
             }
           } catch (e) {
-            console.error(`Error scanning utils file ${file}:`, e);
+            console.error(`Error scanning utils file ${file.fsPath}:`, e);
           }
         }
       }
