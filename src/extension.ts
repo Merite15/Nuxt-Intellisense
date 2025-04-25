@@ -1197,6 +1197,7 @@ class NuxtIntellisense implements vscode.CodeLensProvider {
       const uris = await vscode.workspace.findFiles('**/*.{vue,js,ts}');
       const results: vscode.Location[] = [];
       const storeDefinitions: Map<string, string> = new Map(); // Pour stocker les id -> hookName
+      const storeDefinitionFiles: Set<string> = new Set(); // Pour stocker les chemins des fichiers de définition de store
 
       // Première passe: trouver toutes les définitions de store
       for (const uri of uris) {
@@ -1216,6 +1217,11 @@ class NuxtIntellisense implements vscode.CodeLensProvider {
         while ((defineMatch = defineStoreRegex.exec(content)) !== null) {
           const storeId = defineMatch[1];
 
+          // Vérifier si ce fichier définit un des stores que nous recherchons
+          if (possibleStoreIds.includes(storeId)) {
+            storeDefinitionFiles.add(uri.fsPath);
+          }
+
           // Trouver le nom du hook associé à cette définition
           const hookNameRegex = /const\s+(\w+)\s*=\s*defineStore\s*\(\s*['"]([^'"]+)['"]/g;
           hookNameRegex.lastIndex = 0; // Réinitialiser l'index
@@ -1230,9 +1236,12 @@ class NuxtIntellisense implements vscode.CodeLensProvider {
         }
       }
 
-      // Deuxième passe: chercher les références
+      // Deuxième passe: chercher les références, mais exclure les fichiers de définition
       for (const uri of uris) {
         if (this.shouldSkipFile(uri.fsPath)) continue;
+
+        // Exclure les fichiers de définition du store
+        if (storeDefinitionFiles.has(uri.fsPath)) continue;
 
         let content: string;
         try {
