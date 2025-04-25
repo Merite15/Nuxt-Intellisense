@@ -1111,92 +1111,42 @@ class Nuxt3CodeLensProvider implements vscode.CodeLensProvider {
    * Trouver les références pour un layout
    */
   private async findLayoutReferences(layoutName: string): Promise<vscode.Location[]> {
-    if (!this.nuxtProjectRoot) {
-      return [];
-    }
+    const uris = await vscode.workspace.findFiles('**/*.vue');
+    const results: vscode.Location[] = [];
 
-    const references: vscode.Location[] = [];
-    const seenReferences = new Set<string>();
+    for (const uri of uris) {
+      // Utilise la lecture de fichier Node
+      let content: string;
+      try {
+        content = fs.readFileSync(uri.fsPath, 'utf-8');
+      } catch {
+        continue;
+      }
 
-    // 1. Recherche dans les pages
-    const pagesDirs = await this.findAllDirsByName('pages');
-
-    for (const pagesDir of pagesDirs) {
-      if (!fs.existsSync(pagesDir)) continue;
-
-      const pageFiles = await this.getFilesRecursively(pagesDir, ['.vue']);
-
-      for (const pageFile of pageFiles) {
-        try {
-          const content = fs.readFileSync(pageFile, 'utf-8');
-
-          // 2. Recherche plus précise de definePageMeta
-          const metaRegex = /definePageMeta\s*\(([^)]*)\)/gs;
-          let metaMatch;
-
-          while ((metaMatch = metaRegex.exec(content)) !== null) {
-            const metaContent = metaMatch[1];
-            const layoutRegex = /layout\s*:\s*(['"`])([^'"`]+)\1/g;
-            let layoutMatch;
-
-            while ((layoutMatch = layoutRegex.exec(metaContent)) !== null) {
-              if (layoutMatch[2] === layoutName) {
-                const key = `${pageFile}:${metaMatch.index}`;
-                if (!seenReferences.has(key)) {
-                  seenReferences.add(key);
-
-                  const pos = this.findExactPosition(
-                    content,
-                    layoutMatch.index + metaMatch.index,
-                    layoutMatch[2]
-                  );
-
-                  references.push(new vscode.Location(
-                    vscode.Uri.file(pageFile),
-                    new vscode.Range(pos, pos)
-                  ));
-                }
-              }
-            }
-          }
-        } catch (e) {
-          console.debug(`Error reading ${pageFile}:`, e);
-        }
+      const regex = new RegExp(`layout\\s*:\\s*(['"\`])${layoutName}\\1`, 'g');
+      let match;
+      while ((match = regex.exec(content)) !== null) {
+        // Calcul position à la main
+        const start = this.indexToPosition(content, match.index);
+        const end = this.indexToPosition(content, match.index + match[0].length);
+        results.push(new vscode.Location(
+          uri,
+          new vscode.Range(
+            new vscode.Position(start.line, start.character),
+            new vscode.Position(end.line, end.character)
+          )
+        ));
       }
     }
 
-    // 3. Vérification de app.vue pour le layout par défaut
-    if (layoutName === 'default') {
-      const appVuePaths = [
-        path.join(this.nuxtProjectRoot, 'app.vue'),
-        path.join(this.nuxtProjectRoot, 'app', 'app.vue')
-      ];
-
-      for (const appVuePath of appVuePaths) {
-        if (fs.existsSync(appVuePath)) {
-          const key = `${appVuePath}:0`;
-          if (!seenReferences.has(key)) {
-            seenReferences.add(key);
-            references.push(new vscode.Location(
-              vscode.Uri.file(appVuePath),
-              new vscode.Position(0, 0)
-            ));
-          }
-        }
-      }
-    }
-
-    return references;
+    return results;
   }
 
-  // Nouvelle méthode helper pour trouver la position exacte
-  private findExactPosition(content: string, offset: number, searchText: string): vscode.Position {
-    const before = content.substring(0, offset);
-    const line = before.split('\n').length - 1;
-    const lineStart = before.lastIndexOf('\n') + 1;
-    const col = offset - lineStart + content.substring(offset).indexOf(searchText);
-
-    return new vscode.Position(line, col);
+  private indexToPosition(content: string, index: number): { line: number, character: number } {
+    const lines = content.slice(0, index).split('\n');
+    const line = lines.length - 1;
+    const character = lines[lines.length - 1].length;
+    return { line, character };
   }
 
   /**
