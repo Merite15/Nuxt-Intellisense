@@ -21,6 +21,7 @@ interface NuxtComponentInfo {
   name: string;
   path: string;
   isAutoImported: boolean;
+  exportType?: string;
 }
 
 class Nuxt3CodeLensProvider implements vscode.CodeLensProvider {
@@ -292,7 +293,7 @@ class Nuxt3CodeLensProvider implements vscode.CodeLensProvider {
       }
     }
 
-    // 6. Détection des layouts Nuxt (dans /layouts/*.vue)
+    // 5. Détection des layouts Nuxt (dans /layouts/*.vue)
     if (isLayout) {
       const layoutSetupRegex = /<script\s+setup[^>]*>|<template>/g;
       let match: RegExpExecArray | null;
@@ -331,8 +332,7 @@ class Nuxt3CodeLensProvider implements vscode.CodeLensProvider {
       }
     }
 
-
-    // 7. Détection des stores Pinia (dans /stores/*.ts)
+    // 6. Détection des stores Pinia (dans /stores/*.ts)
     if (isStore) {
       const defineStoreRegex = /defineStore\s*\(\s*(['"`])(.*?)\1/g;
       let match: RegExpExecArray | null;
@@ -361,6 +361,57 @@ class Nuxt3CodeLensProvider implements vscode.CodeLensProvider {
             })
           );
         }
+      }
+    }
+
+    // 7. Détection des imports de fichiers (dans /utils/*.ts)
+    const isUtils = fileDir.includes('utils') ||
+      fileDir.includes('constants') ||
+      fileDir.includes('schemas') ||
+      fileDir.includes('validationSchemas') ||
+      fileDir.includes('helpers') ||
+      fileDir.includes('lib');
+
+    if (isUtils && !isComposable && !isStore) {
+      const utilsRegex = /export\s+(const|function|async function|interface|type|enum|class)\s+(\w+)/g;
+      let match: RegExpExecArray | null;
+
+      while ((match = utilsRegex.exec(text))) {
+        const exportType = match[1];
+        const name = match[2];
+        const pos = document.positionAt(match.index);
+        const range = new vscode.Range(pos.line, 0, pos.line, 0);
+
+        // Type d'emoji et libellé selon le type d'export
+        let emoji = '🔧'; // Par défaut pour les utilitaires
+        let typeLabel = 'utilitaire';
+
+        if (exportType === 'interface' || exportType === 'type') {
+          emoji = '📝';
+          typeLabel = exportType === 'interface' ? 'interface' : 'type';
+        } else if (exportType === 'const') {
+          emoji = '📊';
+          typeLabel = 'constante';
+        } else if (exportType === 'class') {
+          emoji = '🏛️';
+          typeLabel = 'classe';
+        }
+
+        // Rechercher les références
+        const references = await this.findUtilsReferences(document, name, pos);
+        const referenceCount = references.length;
+
+        lenses.push(
+          new vscode.CodeLens(range, {
+            title: `${emoji} ${referenceCount} référence${referenceCount === 1 ? '' : 's'} de ${typeLabel}`,
+            command: 'editor.action.showReferences',
+            arguments: [
+              document.uri,
+              new vscode.Position(pos.line, match[0].indexOf(name)),
+              references
+            ]
+          })
+        );
       }
     }
 
@@ -433,14 +484,12 @@ class Nuxt3CodeLensProvider implements vscode.CodeLensProvider {
 
     // Analyser les composants
     const componentDirs = await this.findAllDirsByName('components');
-
     for (const dir of componentDirs) {
       await this.scanComponentsDirectory(dir);
     }
 
     // Analyser les composables
     const composablesDirs = await this.findAllDirsByName('composables');
-
     for (const dir of composablesDirs) {
       await this.scanComposablesDirectory(dir);
     }
@@ -450,6 +499,9 @@ class Nuxt3CodeLensProvider implements vscode.CodeLensProvider {
     for (const dir of storeDirs) {
       await this.scanStoresDirectory(dir);
     }
+
+    // Analyser les utilitaires et constantes
+    await this.scanUtilsDirectories();
   }
 
   /**
@@ -1220,6 +1272,201 @@ class Nuxt3CodeLensProvider implements vscode.CodeLensProvider {
       .replace(/([a-z0-9])([A-Z])/g, '$1-$2')
       .replace(/([A-Z])([A-Z])(?=[a-z])/g, '$1-$2')
       .toLowerCase();
+  }
+
+  /**
+ * Analyser les répertoires d'utilitaires
+ */
+  private async scanUtilsDirectories(): Promise<void> {
+    if (!this.nuxtProjectRoot) return;
+
+    // Liste des dossiers potentiels à scanner
+    const utilsDirNames = ['utils', 'helpers', 'lib', 'constants', 'schemas', 'validationSchemas'];
+    const utilsInfos: NuxtComponentInfo[] = [];
+
+    for (const dirName of utilsDirNames) {
+      const dirs = await this.findAllDirsByName(dirName);
+
+      for (const dir of dirs) {
+        if (!fs.existsSync(dir)) continue;
+
+        const files = await this.getFilesRecursively(dir, ['.ts', '.js']);
+
+        for (const file of files) {
+          try {
+            const content = fs.readFileSync(file, 'utf-8');
+
+            // Éviter de scanner les fichiers qui contiennent des définitions de store ou de composables
+            if (content.includes('defineStore') ||
+              file.includes(path.sep + 'composables' + path.sep) ||
+              file.includes(path.sep + 'stores' + path.sep)) {
+              continue;
+            }
+
+            // Détecter les exports
+            const exportRegex = /export\s+(const|function|async function|interface|type|enum|class)\s+(\w+)/g;
+            let match: RegExpExecArray | null;
+
+            while ((match = exportRegex.exec(content))) {
+              const exportType = match[1];
+              const name = match[2];
+
+              utilsInfos.push({
+                name: name,
+                path: file,
+                isAutoImported: false, // Les utilitaires ne sont généralement pas auto-importés par défaut
+                exportType: exportType // Stocker le type d'export pour différencier
+              });
+            }
+          } catch (e) {
+            console.error(`Error scanning utils file ${file}:`, e);
+          }
+        }
+      }
+    }
+
+    this.autoImportCache.set('utils', utilsInfos);
+  }
+
+  /**
+ * Trouver toutes les références pour un utilitaire
+ */
+  private async findUtilsReferences(document: vscode.TextDocument, name: string, position: vscode.Position): Promise<vscode.Location[]> {
+    try {
+      // Recherche standard des références via VS Code
+      const references = await vscode.commands.executeCommand<vscode.Location[]>(
+        'vscode.executeReferenceProvider',
+        document.uri,
+        new vscode.Position(position.line, position.character + name.length - 1)
+      ) || [];
+
+      // Filtrer les fichiers générés
+      const filteredReferences = references.filter(ref =>
+        !ref.uri.fsPath.includes('.nuxt') &&
+        !ref.uri.fsPath.includes('node_modules')
+      );
+
+      // Si nous avons un projet Nuxt, rechercher d'autres références
+      if (this.nuxtProjectRoot) {
+        // Obtenir tous les fichiers du projet
+        const allFiles = await this.getFilesRecursively(this.nuxtProjectRoot, ['.vue', '.ts', '.js']);
+
+        for (const file of allFiles) {
+          // Éviter de chercher dans le fichier courant
+          if (file === document.uri.fsPath) continue;
+
+          try {
+            const content = fs.readFileSync(file, 'utf-8');
+
+            // Rechercher les imports précis de ce module
+            const importRegex = new RegExp(`import\\s+{[^}]*\\b${name}\\b[^}]*}\\s+from\\s+(['"\`][^'\`"]*['"\`])`, 'g');
+            let match: RegExpExecArray | null;
+
+            while ((match = importRegex.exec(content))) {
+              const importPath = match[1].slice(1, -1); // Enlever les guillemets
+
+              // Vérifier si l'import correspond à notre fichier
+              if (this.isImportPointingToFile(importPath, file, document.uri.fsPath)) {
+                const index = match.index;
+                const nameIndex = content.indexOf(name, index);
+
+                if (nameIndex !== -1) {
+                  const before = content.slice(0, nameIndex);
+                  const line = before.split('\n').length - 1;
+                  const lineStartIndex = before.lastIndexOf('\n') + 1;
+                  const col = nameIndex - lineStartIndex;
+
+                  const uri = vscode.Uri.file(file);
+                  const range = new vscode.Range(
+                    new vscode.Position(line, col),
+                    new vscode.Position(line, col + name.length)
+                  );
+
+                  filteredReferences.push(new vscode.Location(uri, range));
+                }
+              }
+            }
+
+            // Rechercher également les utilisations directes du nom
+            const usageRegex = new RegExp(`\\b${name}\\b`, 'g');
+            while ((match = usageRegex.exec(content))) {
+              // Ignorer les imports déjà traités
+              if (!content.substring(Math.max(0, match.index - 20), match.index).includes('import')) {
+                const index = match.index;
+                const before = content.slice(0, index);
+                const line = before.split('\n').length - 1;
+                const lineStartIndex = before.lastIndexOf('\n') + 1;
+                const col = index - lineStartIndex;
+
+                const uri = vscode.Uri.file(file);
+                const range = new vscode.Range(
+                  new vscode.Position(line, col),
+                  new vscode.Position(line, col + name.length)
+                );
+
+                filteredReferences.push(new vscode.Location(uri, range));
+              }
+            }
+          } catch (e) {
+            // Ignorer les erreurs
+          }
+        }
+      }
+
+      return filteredReferences;
+    } catch (e) {
+      console.error('Error finding utils references:', e);
+      return [];
+    }
+  }
+
+  /**
+   * Vérifie si un chemin d'import pointe vers notre fichier
+   */
+  private isImportPointingToFile(importPath: string, importingFile: string, targetFile: string): boolean {
+    // Gérer les importations relatives et alias (~/, @/)
+    if (importPath.startsWith('./') || importPath.startsWith('../')) {
+      const importingDir = path.dirname(importingFile);
+      const resolvedPath = path.resolve(importingDir, importPath);
+      const resolvedWithExt = this.resolveWithExtension(resolvedPath);
+      return resolvedWithExt === targetFile;
+    } else if (importPath.startsWith('~/') || importPath.startsWith('@/')) {
+      const aliasPath = importPath.substring(2); // Enlever ~/ ou @/
+      const resolvedPath = path.join(this.nuxtProjectRoot!, aliasPath);
+      const resolvedWithExt = this.resolveWithExtension(resolvedPath);
+      return resolvedWithExt === targetFile;
+    }
+    return false;
+  }
+
+  /**
+   * Résoudre le chemin avec l'extension correcte
+   */
+  private resolveWithExtension(filePath: string): string {
+    const extensions = ['.ts', '.js', '.vue'];
+
+    // Si le chemin a déjà une extension valide
+    if (extensions.includes(path.extname(filePath))) {
+      return filePath;
+    }
+
+    // Essayer chaque extension
+    for (const ext of extensions) {
+      const pathWithExt = filePath + ext;
+      if (fs.existsSync(pathWithExt)) {
+        return pathWithExt;
+      }
+    }
+
+    // Essayer avec /index
+    for (const ext of extensions) {
+      const indexPath = path.join(filePath, `index${ext}`);
+      if (fs.existsSync(indexPath)) {
+        return indexPath;
+      }
+    }
+
+    return filePath;
   }
 }
 
