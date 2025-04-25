@@ -3,7 +3,6 @@ import * as path from 'path';
 import * as fs from 'fs';
 
 export function activate(context: vscode.ExtensionContext) {
-  // Enregistrer le fournisseur de CodeLens
   context.subscriptions.push(
     vscode.languages.registerCodeLensProvider(
       [
@@ -15,7 +14,7 @@ export function activate(context: vscode.ExtensionContext) {
     )
   );
 
-  console.log('Extension "nuxt3-codelens" est maintenant active!');
+  console.log('Extension "nuxt intellisense" est maintenant active!');
 }
 
 interface NuxtComponentInfo {
@@ -39,10 +38,8 @@ class Nuxt3CodeLensProvider implements vscode.CodeLensProvider {
       return [];
     }
 
-    // Trouver la racine du projet Nuxt
     this.nuxtProjectRoot = await this.findNuxtProjectRoot(document.uri);
 
-    // Mettre à jour le cache des auto-importations si nécessaire
     await this.updateAutoImportCacheIfNeeded();
 
     // Le nom du fichier actuel (pour déterminer le type)
@@ -60,7 +57,7 @@ class Nuxt3CodeLensProvider implements vscode.CodeLensProvider {
     const text = document.getText();
 
     // 1. Détection des composables (dans /composables/*.ts)
-    if (isComposable || text.includes('export function') || text.includes('export const')) {
+    if (isComposable) {
       const composableRegex = /export\s+(const|function|async function)\s+(\w+)/g;
       let match: RegExpExecArray | null;
 
@@ -90,7 +87,6 @@ class Nuxt3CodeLensProvider implements vscode.CodeLensProvider {
       }
     }
 
-    // 2. Détection des composants Vue et Nuxt (dans /components/*.vue)
     // 2. Détection des composants Vue et Nuxt (dans /components/*.vue)
     if (isVueFile) {
       // Ne pas afficher les CodeLens pour les composants si on est dans une page
@@ -452,14 +448,20 @@ class Nuxt3CodeLensProvider implements vscode.CodeLensProvider {
     }
     const composableInfos: NuxtComponentInfo[] = [];
     const files = await this.getFilesRecursively(dir, ['.ts', '.js']);
+
     for (const file of files) {
-      // Lire le fichier pour trouver les fonctions exportées
       try {
         const content = fs.readFileSync(file, 'utf-8');
+        // Ignorer complètement les fichiers qui ne sont pas dans le dossier composables
+        if (!file.includes(path.sep + 'composables' + path.sep)) {
+          continue;
+        }
+
         // Vérifier si le fichier contient une définition de store Pinia
         if (content.includes('defineStore')) {
-          continue; // Ignorer les fichiers qui définissent des stores
+          continue;
         }
+
         const exportRegex = /export\s+(const|function|async function)\s+(\w+)/g;
         let match: RegExpExecArray | null;
         while ((match = exportRegex.exec(content))) {
