@@ -1352,7 +1352,11 @@ class Nuxt3CodeLensProvider implements vscode.CodeLensProvider {
         const allFiles = await this.getFilesRecursively(this.nuxtProjectRoot, ['.vue', '.ts', '.js']);
 
         for (const file of allFiles) {
-          // Éviter de chercher dans le fichier courant
+          if (file.includes('node_modules') || file.includes('.nuxt') ||
+            file.includes('.output') || file.includes('dist')) {
+            continue;
+          }
+
           if (file === document.uri.fsPath) continue;
 
           try {
