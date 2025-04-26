@@ -1,6 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
-import * as vscode from 'vscode';
+import { Constants } from './constants';
 
 /**
  * @author Merite15
@@ -10,33 +10,46 @@ export class FileUtils {
     /**
      * Find all directories with a specific name in the project
      */
-    static async findAllDirsByName(rootDir: string, dirName: string): Promise<string[]> {
+    static async findAllDirsByName(dirName: string): Promise<string[]> {
         const dirs: string[] = [];
 
-        // Vérifier si le répertoire racine existe
-        if (!fs.existsSync(rootDir)) {
-            return dirs;
+        if (!Constants.nuxtProjectRoot) return dirs;
+
+        // Directories to check initially - including Nuxt 3 standard and Nuxt 4 compatibility mode
+        const initialDirs = [
+            Constants.nuxtProjectRoot,
+            path.join(Constants.nuxtProjectRoot, 'app'),
+            path.join(Constants.nuxtProjectRoot, 'app', 'base'),
+            // Add other potential layer directories
+            path.join(Constants.nuxtProjectRoot, 'app', 'modules')
+        ].filter(dir => fs.existsSync(dir));
+
+        for (const initialDir of initialDirs) {
+            const recurse = (dir: string) => {
+                try {
+                    const entries = fs.readdirSync(dir, { withFileTypes: true });
+
+                    for (const entry of entries) {
+                        const fullPath = path.join(dir, entry.name);
+                        if (entry.isDirectory()) {
+                            if (entry.name === dirName) {
+                                dirs.push(fullPath);
+                            }
+                            // Don't recurse into node_modules
+                            if (entry.name !== 'node_modules' && entry.name !== '.nuxt' && entry.name !== '.output') {
+                                recurse(fullPath); // continuer la récursion
+                            }
+                        }
+                    }
+                } catch (e) {
+                    // Ignore errors for directories that can't be read
+                }
+            };
+
+            recurse(initialDir);
         }
 
-        // Chemins standards Nuxt
-        const searchPaths = [
-            rootDir,
-            path.join(rootDir, 'src'),
-            path.join(rootDir, 'app')
-        ];
-
-        // Rechercher dans chaque chemin
-        for (const searchPath of searchPaths) {
-            if (!fs.existsSync(searchPath)) continue;
-
-            const entries = await vscode.workspace.findFiles(
-                new vscode.RelativePattern(searchPath, `**/${dirName}`)
-            );
-
-            dirs.push(...entries.map(entry => path.dirname(entry.fsPath)));
-        }
-
-        return [...new Set(dirs)]; // Éliminer les doublons
+        return dirs;
     }
 
     /**

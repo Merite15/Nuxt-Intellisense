@@ -4,9 +4,9 @@ import * as path from 'path';
 import { FileUtils } from '../utils/fileUtils';
 import { PathUtils } from '../utils/pathUtils';
 import { NuxtComponentInfo } from '../types';
+import { Constants } from '../utils/constants';
 
 export class ComponentService {
-    constructor(private nuxtProjectRoot: string) { }
 
     async provideCodeLenses(document: vscode.TextDocument): Promise<vscode.CodeLens[]> {
         const lenses: vscode.CodeLens[] = [];
@@ -138,9 +138,10 @@ export class ComponentService {
     }
 
     async findComponentReferences(document: vscode.TextDocument, componentName: string): Promise<vscode.Location[]> {
-        if (!this.nuxtProjectRoot) return [];
+        if (!Constants.nuxtProjectRoot) return [];
 
         console.log(componentName);
+
 
         // Identification du nom du composant Nuxt
         const allComponentDirs = await this.findAllComponentsDirs();
@@ -164,7 +165,10 @@ export class ComponentService {
         const uris = await vscode.workspace.findFiles('**/*.{vue,js,ts}');
 
         for (const uri of uris) {
-            if (FileUtils.shouldSkipFile(uri.fsPath) ||
+            if (uri.fsPath.includes('node_modules') ||
+                uri.fsPath.includes('.nuxt') ||
+                uri.fsPath.includes('.output') ||
+                uri.fsPath.includes('dist') ||
                 path.basename(uri.fsPath) === 'app.vue' ||
                 path.basename(uri.fsPath) === 'error.vue') {
                 continue;
@@ -191,7 +195,7 @@ export class ComponentService {
                     const matchText = match[0];
                     const index = match.index;
 
-                    // Calculer la position du début
+                    // Calculer la position à la main
                     const before = content.slice(0, index);
                     const line = before.split('\n').length - 1;
                     const lineStartIndex = before.lastIndexOf('\n') + 1;
@@ -218,12 +222,33 @@ export class ComponentService {
         return results;
     }
 
-    private async findAllComponentsDirs(): Promise<string[]> {
-        return FileUtils.findAllDirsByName(this.nuxtProjectRoot, 'components');
+    async findAllComponentsDirs(): Promise<string[]> {
+        const dirs: string[] = [];
+
+        if (!Constants.nuxtProjectRoot) return dirs;
+
+        const recurse = (dir: string) => {
+            const entries = fs.readdirSync(dir, { withFileTypes: true });
+
+            for (const entry of entries) {
+                const fullPath = path.join(dir, entry.name);
+
+                if (entry.isDirectory()) {
+                    if (entry.name === 'components') {
+                        dirs.push(fullPath);
+                    }
+                    recurse(fullPath);
+                }
+            }
+        };
+
+        recurse(Constants.nuxtProjectRoot);
+        return dirs;
     }
 
     private getNuxtComponentName(filePath: string, componentsDir: string): string {
         let relPath = path.relative(componentsDir, filePath).replace(/\.vue$/, '');
+
         const parts = relPath.split(path.sep);
 
         if (parts[parts.length - 1].toLowerCase() === 'index') {
@@ -241,17 +266,20 @@ export class ComponentService {
             .join('');
     }
 
-    async scanComponentsDirectory(dir: string): Promise<NuxtComponentInfo[]> {
+    async scanComponentsDirectory(dir: string): Promise<void> {
         if (!fs.existsSync(dir)) {
-            return [];
+            return;
         }
 
         const componentInfos: NuxtComponentInfo[] = [];
+
         const relativePattern = new vscode.RelativePattern(dir, '**/*.vue');
+
         const files = await vscode.workspace.findFiles(relativePattern);
 
         for (const file of files) {
             const componentName = path.basename(file.fsPath, '.vue');
+
             componentInfos.push({
                 name: componentName,
                 path: file.fsPath,
@@ -259,6 +287,6 @@ export class ComponentService {
             });
         }
 
-        return componentInfos;
+        Constants.autoImportCache.set('components', componentInfos);
     }
 }

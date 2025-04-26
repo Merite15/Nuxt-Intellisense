@@ -1,11 +1,11 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs';
-import { FileUtils } from '../utils/fileUtils';
+import * as path from 'path';
 import { TextUtils } from '../utils/textUtils';
+import type { NuxtComponentInfo } from '../types';
+import { Constants } from '../utils/constants';
 
 export class ComposableService {
-    constructor(private nuxtProjectRoot: string) { }
-
     async provideCodeLenses(document: vscode.TextDocument): Promise<vscode.CodeLens[]> {
         const lenses: vscode.CodeLens[] = [];
         const text = document.getText();
@@ -38,7 +38,7 @@ export class ComposableService {
         return lenses;
     }
 
-    async findAllReferences(document: vscode.TextDocument, name: string, position: vscode.Position): Promise<vscode.Location[]> {
+    private async findAllReferences(document: vscode.TextDocument, name: string, position: vscode.Position): Promise<vscode.Location[]> {
         try {
             const results: vscode.Location[] = [];
 
@@ -61,7 +61,12 @@ export class ComposableService {
             const uris = await vscode.workspace.findFiles('**/*.{vue,js,ts}');
 
             for (const uri of uris) {
-                if (FileUtils.shouldSkipFile(uri.fsPath) || uri.fsPath === document.uri.fsPath) {
+                // Ignorer les fichiers générés et le fichier courant
+                if (uri.fsPath.includes('node_modules') ||
+                    uri.fsPath.includes('.nuxt') ||
+                    uri.fsPath.includes('.output') ||
+                    uri.fsPath.includes('dist') ||
+                    uri.fsPath === document.uri.fsPath) {
                     continue;
                 }
 
@@ -73,14 +78,14 @@ export class ComposableService {
                 }
 
                 // Rechercher les utilisations du composable
-                const usageRegex = new RegExp(`\\b(${name}\\s*\\(|${name}\\s*<)`, 'g');
+                const usageRegex = new RegExp(`\\b(${name}\\s*\\(|${name}\\s*<)`, 'g'); // Inclut les appels avec génériques
                 let match;
 
                 while ((match = usageRegex.exec(content)) !== null) {
                     const matchText = match[1];
                     const index = match.index;
 
-                    // Calculer la position
+                    // Calculer la position à la main
                     const start = TextUtils.indexToPosition(content, index);
                     const end = TextUtils.indexToPosition(content, index + matchText.length);
 
@@ -99,5 +104,52 @@ export class ComposableService {
             console.error('Error finding references:', e);
             return [];
         }
+    }
+
+    /**
+     * Analyser le répertoire des composables
+     */
+    async scanComposablesDirectory(dir: string): Promise<void> {
+        if (!fs.existsSync(dir)) {
+            return;
+        }
+
+        const composableInfos: NuxtComponentInfo[] = [];
+
+        const relativePattern = new vscode.RelativePattern(dir, '**/*.{ts,js}');
+
+        const files = await vscode.workspace.findFiles(relativePattern);
+
+        for (const file of files) {
+            try {
+                const content = fs.readFileSync(file.fsPath, 'utf-8');
+                // Ignorer complètement les fichiers qui ne sont pas dans le dossier composables
+                if (!file.fsPath.includes(path.sep + 'composables' + path.sep)) {
+                    continue;
+                }
+
+                // Vérifier si le fichier contient une définition de store Pinia
+                if (content.includes('defineStore')) {
+                    continue;
+                }
+
+                const exportRegex = /export\s+(const|function|async function)\s+(\w+)/g;
+
+                let match: RegExpExecArray | null;
+
+                while ((match = exportRegex.exec(content))) {
+                    const name = match[2];
+                    composableInfos.push({
+                        name: name,
+                        path: file.fsPath,
+                        isAutoImported: true
+                    });
+                }
+            } catch (e) {
+                // Ignorer les erreurs de lecture
+            }
+        }
+
+        Constants.autoImportCache.set('composables', composableInfos);
     }
 }

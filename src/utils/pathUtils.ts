@@ -1,4 +1,6 @@
 import * as path from 'path';
+import { Constants } from './constants';
+import * as fs from 'fs';
 
 /**
  * @author Merite15
@@ -10,55 +12,58 @@ export class PathUtils {
      */
     static pascalToKebabCase(str: string): string {
         return str
-            .split(/(?=[A-Z])/)
-            .join('-')
+            .replace(/([a-z0-9])([A-Z])/g, '$1-$2')
+            .replace(/([A-Z])([A-Z])(?=[a-z])/g, '$1-$2')
             .toLowerCase();
     }
 
     /**
-     * Check if an import path points to a specific file
+     * Vérifie si un chemin d'import pointe vers notre fichier
      */
-    static isImportPointingToFile(
-        importPath: string,
-        sourceFilePath: string,
-        targetFilePath: string,
-        projectRoot: string
-    ): boolean {
-        // Gestion des chemins relatifs (./ ou ../)
-        if (importPath.startsWith('.')) {
-            const sourceDir = path.dirname(sourceFilePath);
-            const resolvedPath = path.resolve(sourceDir, importPath);
-            return this.matchesWithExtension(resolvedPath, targetFilePath);
+    static isImportPointingToFile(importPath: string, importingFile: string, targetFile: string): boolean {
+        // Gérer les importations relatives et alias (~/, @/)
+        if (importPath.startsWith('./') || importPath.startsWith('../')) {
+            const importingDir = path.dirname(importingFile);
+            const resolvedPath = path.resolve(importingDir, importPath);
+            const resolvedWithExt = this.resolveWithExtension(resolvedPath);
+            return resolvedWithExt === targetFile;
+        } else if (importPath.startsWith('~/') || importPath.startsWith('@/')) {
+            const aliasPath = importPath.substring(2); // Enlever ~/ ou @/
+            const resolvedPath = path.join(Constants.nuxtProjectRoot!, aliasPath);
+            const resolvedWithExt = this.resolveWithExtension(resolvedPath);
+            return resolvedWithExt === targetFile;
         }
-
-        // Gestion des alias Nuxt (~ ou @)
-        if (importPath.startsWith('~') || importPath.startsWith('@')) {
-            const withoutAlias = importPath.substring(1);
-            const resolvedPath = path.join(projectRoot, withoutAlias);
-            return this.matchesWithExtension(resolvedPath, targetFilePath);
-        }
-
         return false;
     }
 
     /**
-     * Check if a path matches a target file, considering possible extensions
+     * Résoudre le chemin avec l'extension correcte
      */
-    private static matchesWithExtension(sourcePath: string, targetPath: string): boolean {
-        if (sourcePath === targetPath) return true;
-
+    static resolveWithExtension(filePath: string): string {
         const extensions = ['.ts', '.js', '.vue'];
 
-        // Vérifier avec les extensions
-        for (const ext of extensions) {
-            if (sourcePath + ext === targetPath) return true;
+        // Si le chemin a déjà une extension valide
+        if (extensions.includes(path.extname(filePath))) {
+            return filePath;
         }
 
-        // Vérifier les fichiers index
+        // Essayer chaque extension
         for (const ext of extensions) {
-            if (path.join(sourcePath, `index${ext}`) === targetPath) return true;
+            const pathWithExt = filePath + ext;
+            if (fs.existsSync(pathWithExt)) {
+                return pathWithExt;
+            }
         }
 
-        return false;
+        // Essayer avec /index
+        for (const ext of extensions) {
+            const indexPath = path.join(filePath, `index${ext}`);
+
+            if (fs.existsSync(indexPath)) {
+                return indexPath;
+            }
+        }
+
+        return filePath;
     }
 }

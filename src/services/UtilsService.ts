@@ -3,37 +3,46 @@ import * as fs from 'fs';
 import { FileUtils } from '../utils/fileUtils';
 import { PathUtils } from '../utils/pathUtils';
 import { TextUtils } from '../utils/textUtils';
+import { Constants } from '../utils/constants';
+import * as path from 'path';
+import type { NuxtComponentInfo } from '../types';
 
 export class UtilsService {
-    constructor(private nuxtProjectRoot: string) { }
-
     async findUtilsReferences(document: vscode.TextDocument, name: string, position: vscode.Position): Promise<vscode.Location[]> {
         try {
             const results: vscode.Location[] = [];
 
-            // 1. Utiliser d'abord le provider de références natif de VS Code
+            const uris = await vscode.workspace.findFiles('**/*.{vue,js,ts}');
+
+            // Première passe : utiliser le provider de références natif de VS Code
             const nativeReferences = await vscode.commands.executeCommand<vscode.Location[]>(
                 'vscode.executeReferenceProvider',
                 document.uri,
                 new vscode.Position(position.line, position.character + name.length - 1)
             ) || [];
 
-            // Filtrer les références natives
+            // Ajouter les références natives filtrées
             for (const ref of nativeReferences) {
-                if (!FileUtils.shouldSkipFile(ref.uri.fsPath) &&
+                if (!ref.uri.fsPath.includes('.nuxt') &&
+                    !ref.uri.fsPath.includes('node_modules') &&
+                    !ref.uri.fsPath.includes('.output') &&
+                    !ref.uri.fsPath.includes('dist') &&
                     !(ref.uri.fsPath === document.uri.fsPath && ref.range.start.line === position.line)) {
                     results.push(ref);
                 }
             }
 
-            // 2. Recherche personnalisée dans tous les fichiers du workspace
-            const uris = await vscode.workspace.findFiles('**/*.{vue,js,ts}');
-
+            // Deuxième passe : recherche dans tous les fichiers du workspace
             for (const uri of uris) {
                 // Exclure les fichiers non pertinents
-                if (FileUtils.shouldSkipFile(uri.fsPath) || uri.fsPath === document.uri.fsPath) {
+                if (uri.fsPath.includes('node_modules') ||
+                    uri.fsPath.includes('.nuxt') ||
+                    uri.fsPath.includes('.output') ||
+                    uri.fsPath.includes('dist')) {
                     continue;
                 }
+
+                if (uri.fsPath === document.uri.fsPath) continue;
 
                 let content: string;
                 try {
@@ -42,13 +51,113 @@ export class UtilsService {
                     continue;
                 }
 
+                const importRegex = new RegExp(`import\\s+{[^}]*\\b${name}\\b[^}]*}\\s+from\\s+(['"\`][^'\`"]*['"\`])`, 'g');
+
+                let match;
+
+                while ((match = importRegex.exec(content)) !== null) {
+                    const importPath = match[1].slice(1, -1); // Enlever les guillemets
+
+                    if (PathUtils.isImportPointingToFile(importPath, uri.fsPath, document.uri.fsPath)) {
+                        const nameIndex = content.indexOf(name, match.index);
+
+                        if (nameIndex !== -1) {
+                            const start = TextUtils.indexToPosition(content, nameIndex);
+
+                            const end = TextUtils.indexToPosition(content, nameIndex + name.length);
+
+                            results.push(new vscode.Location(
+                                uri,
+                                new vscode.Range(
+                                    new vscode.Position(start.line, start.character),
+                                    new vscode.Position(end.line, end.character)
+                                )
+                            ));
+                        }
+                    }
+                }
+
+                const typeUsageRegex = new RegExp(`[:<]\\s*${name}(\\[\\])?\\b`, 'g');
+
+                const usageRegex = new RegExp(`(?<!['"\`<>])\\b${name}\\b(?!\\s*:)`, 'g');
+
+                const templateBindingRegex = new RegExp(`[:@\\w\\-]+=['"]\\s*[^'"]*\\b${name}\\b[^'"]*['"]`, 'g');
+
                 const seen = new Set<string>();
 
-                // 3. Détecter les différents types d'utilisation
-                await this.findTypeUsages(content, uri, name, seen, results);
-                await this.findJavaScriptUsages(content, uri, name, seen, results);
-                await this.findTemplateUsages(content, uri, name, seen, results);
-                await this.findImportUsages(content, uri, name, document.uri.fsPath, seen, results);
+                while ((match = typeUsageRegex.exec(content)) !== null) {
+                    const matchStart = match.index + match[0].indexOf(name);
+                    const start = TextUtils.indexToPosition(content, matchStart);
+                    const end = TextUtils.indexToPosition(content, matchStart + name.length);
+
+                    const locationKey = `${uri.fsPath}:${start.line}:${start.character}`;
+                    if (!seen.has(locationKey)) {
+                        seen.add(locationKey);
+                        results.push(new vscode.Location(
+                            uri,
+                            new vscode.Range(
+                                new vscode.Position(start.line, start.character),
+                                new vscode.Position(end.line, end.character)
+                            )
+                        ));
+                    }
+                }
+
+
+                while ((match = usageRegex.exec(content)) !== null) {
+                    const matchStart = match.index + (match[0].length - name.length);
+
+                    const lineStart = content.lastIndexOf('\n', matchStart) + 1;
+
+                    const lineEnd = content.indexOf('\n', matchStart);
+
+                    const line = content.substring(lineStart, lineEnd !== -1 ? lineEnd : content.length);
+
+                    if (
+                        line.includes('<') && line.includes('>') || // HTML
+                        line.includes(`'${name}'`) || line.includes(`"${name}"`) || line.includes(`\`${name}\``)
+                    ) {
+                        continue;
+                    }
+
+                    const start = TextUtils.indexToPosition(content, matchStart);
+
+                    const end = TextUtils.indexToPosition(content, matchStart + name.length);
+
+                    const locationKey = `${uri.fsPath}:${start.line}:${start.character}`;
+                    if (!seen.has(locationKey)) {
+                        seen.add(locationKey);
+
+                        results.push(new vscode.Location(
+                            uri,
+                            new vscode.Range(
+                                new vscode.Position(start.line, start.character),
+                                new vscode.Position(end.line, end.character)
+                            )
+                        ));
+                    }
+                }
+
+                while ((match = templateBindingRegex.exec(content)) !== null) {
+                    const matchStart = match.index + match[0].indexOf(name);
+
+                    const start = TextUtils.indexToPosition(content, matchStart);
+
+                    const end = TextUtils.indexToPosition(content, matchStart + name.length);
+
+                    const locationKey = `${uri.fsPath}:${start.line}:${start.character}`;
+                    if (!seen.has(locationKey)) {
+                        seen.add(locationKey);
+                        results.push(new vscode.Location(
+                            uri,
+                            new vscode.Range(
+                                new vscode.Position(start.line, start.character),
+                                new vscode.Position(end.line, end.character)
+                            )
+                        ));
+                    }
+                }
+
             }
 
             return results;
@@ -58,150 +167,56 @@ export class UtilsService {
         }
     }
 
-    private async findTypeUsages(
-        content: string,
-        uri: vscode.Uri,
-        name: string,
-        seen: Set<string>,
-        results: vscode.Location[]
-    ): Promise<void> {
-        // Pour les types / génériques : <MyComponent<MyType>>
-        const typeUsageRegex = new RegExp(`[:<]\\s*${name}(\\[\\])?\\b`, 'g');
-        let match;
+    async scanUtilsDirectories(): Promise<void> {
+        if (!Constants.nuxtProjectRoot) return;
 
-        while ((match = typeUsageRegex.exec(content))) {
-            const matchStart = match.index + match[0].indexOf(name);
-            this.addLocationIfNotSeen(content, uri, matchStart, name.length, seen, results);
-        }
-    }
+        const utilsDirNames = ['utils', 'helpers', 'lib', 'constants', 'schemas', 'validationSchemas'];
 
-    private async findJavaScriptUsages(
-        content: string,
-        uri: vscode.Uri,
-        name: string,
-        seen: Set<string>,
-        results: vscode.Location[]
-    ): Promise<void> {
-        // Pour les usages JS classiques (évite les strings/HTML)
-        const usageRegex = new RegExp(`(?<!['"\`<>])\\b${name}\\b(?!\\s*:)`, 'g');
-        let match;
+        const utilsInfos: NuxtComponentInfo[] = [];
 
-        while ((match = usageRegex.exec(content))) {
-            const matchStart = match.index + (match[0].length - name.length);
+        for (const dirName of utilsDirNames) {
+            const dirs = await FileUtils.findAllDirsByName(dirName);
 
-            // Vérifier le contexte pour éviter les faux positifs
-            const lineStart = content.lastIndexOf('\n', matchStart) + 1;
-            const lineEnd = content.indexOf('\n', matchStart);
-            const line = content.substring(
-                lineStart,
-                lineEnd !== -1 ? lineEnd : content.length
-            );
+            for (const dir of dirs) {
+                if (!fs.existsSync(dir)) continue;
 
-            if (this.isValidJavaScriptUsage(line, name)) {
-                this.addLocationIfNotSeen(content, uri, matchStart, name.length, seen, results);
-            }
-        }
-    }
+                const relativePattern = new vscode.RelativePattern(dir, '**/*.{ts,js}');
 
-    private isValidJavaScriptUsage(line: string, name: string): boolean {
-        // Ignorer si dans un HTML ou dans une string
-        return !(
-            line.includes('<') && line.includes('>') || // HTML
-            line.includes(`'${name}'`) ||
-            line.includes(`"${name}"`) ||
-            line.includes(`\`${name}\``)
-        );
-    }
+                const files = await vscode.workspace.findFiles(relativePattern);
 
-    private async findTemplateUsages(
-        content: string,
-        uri: vscode.Uri,
-        name: string,
-        seen: Set<string>,
-        results: vscode.Location[]
-    ): Promise<void> {
-        // Pour les bindings dans les templates Vue
-        const patterns = [
-            new RegExp(`[:@]\\w+=['"]\\s*[^'"]*\\b${name}\\b[^'"]*['"]`, 'g'), // Directives
-            new RegExp(`{{\\s*[^}]*\\b${name}\\b[^}]*}}`, 'g'), // Interpolations
-            new RegExp(`v-[^=]+=(['"])[^'"]*\\b${name}\\b[^'"]*\\1`, 'g') // v-directives
-        ];
+                for (const file of files) {
+                    try {
+                        const content = fs.readFileSync(file.fsPath, 'utf-8');
 
-        for (const regex of patterns) {
-            let match;
-            while ((match = regex.exec(content))) {
-                const matchText = match[0];
-                const nameIndex = matchText.indexOf(name);
-                if (nameIndex !== -1) {
-                    this.addLocationIfNotSeen(
-                        content,
-                        uri,
-                        match.index + nameIndex,
-                        name.length,
-                        seen,
-                        results
-                    );
+                        // Éviter de scanner les fichiers qui contiennent des définitions de store ou de composables
+                        if (content.includes('defineStore') ||
+                            file.fsPath.includes(path.sep + 'composables' + path.sep) ||
+                            file.fsPath.includes(path.sep + 'stores' + path.sep)) {
+                            continue;
+                        }
+
+                        // Détecter les exports
+                        const exportRegex = /export\s+(const|function|async function|interface|type|enum|class)\s+(\w+)/g;
+                        let match: RegExpExecArray | null;
+
+                        while ((match = exportRegex.exec(content))) {
+                            const exportType = match[1];
+                            const name = match[2];
+
+                            utilsInfos.push({
+                                name: name,
+                                path: file.fsPath,
+                                isAutoImported: false, // Les utilitaires ne sont généralement pas auto-importés par défaut
+                                exportType: exportType // Stocker le type d'export pour différencier
+                            });
+                        }
+                    } catch (e) {
+                        console.error(`Error scanning utils file ${file.fsPath}:`, e);
+                    }
                 }
             }
         }
-    }
 
-    private async findImportUsages(
-        content: string,
-        uri: vscode.Uri,
-        name: string,
-        targetFile: string,
-        seen: Set<string>,
-        results: vscode.Location[]
-    ): Promise<void> {
-        // Rechercher les imports
-        const importRegex = new RegExp(
-            `import\\s+{[^}]*\\b${name}\\b[^}]*}\\s+from\\s+(['"\`][^'\`"]*['"\`])`,
-            'g'
-        );
-
-        let match;
-        while ((match = importRegex.exec(content))) {
-            const importPath = match[1].slice(1, -1); // Enlever les guillemets
-
-            // Vérifier si l'import pointe vers notre fichier
-            if (PathUtils.isImportPointingToFile(importPath, uri.fsPath, targetFile, this.nuxtProjectRoot)) {
-                const nameIndex = content.indexOf(name, match.index);
-                if (nameIndex !== -1) {
-                    this.addLocationIfNotSeen(
-                        content,
-                        uri,
-                        nameIndex,
-                        name.length,
-                        seen,
-                        results
-                    );
-                }
-            }
-        }
-    }
-
-    private addLocationIfNotSeen(
-        content: string,
-        uri: vscode.Uri,
-        startIndex: number,
-        length: number,
-        seen: Set<string>,
-        results: vscode.Location[]
-    ): void {
-        const start = TextUtils.indexToPosition(content, startIndex);
-        const end = TextUtils.indexToPosition(content, startIndex + length);
-
-        const locationKey = `${uri.fsPath}:${start.line}:${start.character}`;
-        if (!seen.has(locationKey)) {
-            seen.add(locationKey);
-            results.push(new vscode.Location(
-                uri,
-                new vscode.Range(
-                    new vscode.Position(start.line, start.character),
-                    new vscode.Position(end.line, end.character)
-                )
-            ));
-        }
+        Constants.autoImportCache.set('utils', utilsInfos);
     }
 }

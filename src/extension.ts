@@ -1402,7 +1402,6 @@ class NuxtIntellisense implements vscode.CodeLensProvider {
     try {
       const results: vscode.Location[] = [];
 
-      // Utiliser directement findFiles comme dans findLayoutReferences
       const uris = await vscode.workspace.findFiles('**/*.{vue,js,ts}');
 
       // Première passe : utiliser le provider de références natif de VS Code
@@ -1455,8 +1454,8 @@ class NuxtIntellisense implements vscode.CodeLensProvider {
             const nameIndex = content.indexOf(name, match.index);
 
             if (nameIndex !== -1) {
-              // Calcul de la position à la main, comme dans findLayoutReferences
               const start = this.indexToPosition(content, nameIndex);
+
               const end = this.indexToPosition(content, nameIndex + name.length);
 
               results.push(new vscode.Location(
