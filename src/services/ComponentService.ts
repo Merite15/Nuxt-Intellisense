@@ -1,23 +1,22 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
-import { FileUtils } from '../utils/fileUtils';
 import { PathUtils } from '../utils/pathUtils';
 import { NuxtComponentInfo } from '../types';
 import { Constants } from '../utils/constants';
 
 export class ComponentService {
-
     async provideCodeLenses(document: vscode.TextDocument): Promise<vscode.CodeLens[]> {
         const lenses: vscode.CodeLens[] = [];
+
         const fileName = path.basename(document.fileName);
 
-        // Ne pas traiter app.vue et error.vue
         if (fileName === 'app.vue' || fileName === 'error.vue') {
             return [];
         }
 
-        // Vérifier si on est dans un composant de page
+        const text = document.getText();
+
         const isPagesComponents = document.fileName.includes(`${path.sep}pages${path.sep}`) &&
             document.fileName.includes(`${path.sep}components${path.sep}`);
 
@@ -25,20 +24,23 @@ export class ComponentService {
             return [];
         }
 
-        const text = document.getText();
         let hasAddedLens = false;
 
-        // 1. Pour les composants avec <script setup>
+        // 2.1 Pour les composants avec <script setup>
         const scriptSetupRegex = /<script\s+[^>]*setup[^>]*>/g;
+
         let match: RegExpExecArray | null;
 
+        // D'abord chercher le script setup
         while ((match = scriptSetupRegex.exec(text))) {
+            console.log('Ola');
             const pos = document.positionAt(match.index);
+
             const range = new vscode.Range(pos.line, 0, pos.line, 0);
 
-            // Nom du composant basé sur le nom de fichier
-            const componentName = path.basename(document.fileName, '.vue');
-            const references = await this.findComponentReferences(document, componentName);
+            // Rechercher les références, y compris les auto-importations
+            const references = await this.findComponentReferences(document);
+
             const referenceCount = references.length;
 
             lenses.push(
@@ -55,15 +57,19 @@ export class ComponentService {
             hasAddedLens = true;
         }
 
-        // 2. Pour les composants avec defineComponent
+        // 2.2 Pour les composants avec defineComponent (seulement si pas de script setup trouvé)
         if (!hasAddedLens) {
+            console.log('Oik');
+
             const defineComponentRegex = /defineComponent\s*\(/g;
+
             while ((match = defineComponentRegex.exec(text))) {
                 const pos = document.positionAt(match.index);
                 const range = new vscode.Range(pos.line, 0, pos.line, 0);
 
-                const componentName = path.basename(document.fileName, '.vue');
-                const references = await this.findComponentReferences(document, componentName);
+                // Rechercher les références, y compris les auto-importations
+                const references = await this.findComponentReferences(document);
+
                 const referenceCount = references.length;
 
                 lenses.push(
@@ -81,15 +87,19 @@ export class ComponentService {
             }
         }
 
-        // 3. Pour les composants Nuxt spécifiques
+        // 2.3 Pour les composants Nuxt spécifiques (seulement si pas de script setup trouvé)
         if (!hasAddedLens) {
+            console.log('Ok');
+
+
             const defineNuxtComponentRegex = /defineNuxtComponent\s*\(/g;
+
             while ((match = defineNuxtComponentRegex.exec(text))) {
                 const pos = document.positionAt(match.index);
                 const range = new vscode.Range(pos.line, 0, pos.line, 0);
 
-                const componentName = path.basename(document.fileName, '.vue');
-                const references = await this.findComponentReferences(document, componentName);
+                // Rechercher les références, y compris les auto-importations
+                const references = await this.findComponentReferences(document);
                 const referenceCount = references.length;
 
                 lenses.push(
@@ -107,17 +117,21 @@ export class ComponentService {
             }
         }
 
-        // 4. Si aucun lens n'a été ajouté, chercher la balise template
+        // 2.4 Si aucune des méthodes ci-dessus n'a trouvé de balise, chercher la balise template
         if (!hasAddedLens) {
+            console.log('alo');
+
             const templateRegex = /<template[^>]*>/g;
+
             match = templateRegex.exec(text);
 
             if (match) {
                 const pos = document.positionAt(match.index);
+
                 const range = new vscode.Range(pos.line, 0, pos.line, 0);
 
-                const componentName = path.basename(document.fileName, '.vue');
-                const references = await this.findComponentReferences(document, componentName);
+                const references = await this.findComponentReferences(document);
+
                 const referenceCount = references.length;
 
                 lenses.push(
@@ -137,20 +151,17 @@ export class ComponentService {
         return lenses;
     }
 
-    async findComponentReferences(document: vscode.TextDocument, componentName: string): Promise<vscode.Location[]> {
-        if (!Constants.nuxtProjectRoot) return [];
-
-        console.log(componentName);
-
-
-        // Identification du nom du composant Nuxt
+    async findComponentReferences(document: vscode.TextDocument): Promise<vscode.Location[]> {
         const allComponentDirs = await this.findAllComponentsDirs();
+
         const filePath = document.uri.fsPath;
 
         let nuxtComponentName = '';
+
         for (const dir of allComponentDirs) {
             if (filePath.startsWith(dir)) {
                 nuxtComponentName = this.getNuxtComponentName(filePath, dir);
+
                 break;
             }
         }
@@ -159,6 +170,7 @@ export class ComponentService {
 
         // Version kebab-case du nom du composant
         const kebab = PathUtils.pascalToKebabCase(nuxtComponentName);
+
         const results: vscode.Location[] = [];
 
         // Utiliser findFiles pour trouver tous les fichiers pertinents dans le workspace
@@ -225,8 +237,6 @@ export class ComponentService {
     async findAllComponentsDirs(): Promise<string[]> {
         const dirs: string[] = [];
 
-        if (!Constants.nuxtProjectRoot) return dirs;
-
         const recurse = (dir: string) => {
             const entries = fs.readdirSync(dir, { withFileTypes: true });
 
@@ -242,7 +252,6 @@ export class ComponentService {
             }
         };
 
-        recurse(Constants.nuxtProjectRoot);
         return dirs;
     }
 

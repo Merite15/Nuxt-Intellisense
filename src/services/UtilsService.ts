@@ -168,8 +168,6 @@ export class UtilsService {
     }
 
     async scanUtilsDirectories(): Promise<void> {
-        if (!Constants.nuxtProjectRoot) return;
-
         const utilsDirNames = ['utils', 'helpers', 'lib', 'constants', 'schemas', 'validationSchemas'];
 
         const utilsInfos: NuxtComponentInfo[] = [];

@@ -1,7 +1,5 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs';
-import * as path from 'path';
-import { Constants } from '../utils/constants';
 import { TextUtils } from '../utils/textUtils';
 
 /**
@@ -46,8 +44,6 @@ export class PluginService {
      * Trouver les références pour un plugin Nuxt
      */
     async findPluginReferences(pluginName: string): Promise<vscode.Location[]> {
-        if (!Constants.nuxtProjectRoot) return [];
-
         const references: vscode.Location[] = [];
         // Utilisé pour suivre les références déjà ajoutées et éviter les duplications
         const addedReferences = new Set<string>();

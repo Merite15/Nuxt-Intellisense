@@ -65,16 +65,19 @@ export class NuxtIntellisense implements vscode.CodeLensProvider {
         try {
             if (fileInfo.isComponent && this.componentService) {
                 const componentLenses = await this.componentService.provideCodeLenses(document);
+
                 lenses.push(...componentLenses);
             }
 
             if (fileInfo.isComposable && this.composableService) {
                 const composableLenses = await this.composableService.provideCodeLenses(document);
+
                 lenses.push(...composableLenses);
             }
 
             if (fileInfo.isPlugin && this.pluginService) {
                 const pluginLenses = await this.pluginService.provideCodeLenses(document);
+
                 lenses.push(...pluginLenses);
             }
 
@@ -100,6 +103,7 @@ export class NuxtIntellisense implements vscode.CodeLensProvider {
                 const text = document.getText();
 
                 const utilsRegex = /export\s+(const|function|async function|interface|type|enum|class)\s+(\w+)/g;
+
                 let match: RegExpExecArray | null;
 
                 while ((match = utilsRegex.exec(text))) {

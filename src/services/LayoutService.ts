@@ -8,7 +8,7 @@ export class LayoutService {
         const lenses: vscode.CodeLens[] = [];
         const text = document.getText();
 
-        const layoutSetupRegex = /<script\s+[^>]*setup[^>]*>|<template>/g;
+        const layoutSetupRegex = /<script\s+setup[^>]*>|<template>/g;
         let match: RegExpExecArray | null;
 
         if ((match = layoutSetupRegex.exec(text))) {
@@ -47,14 +47,16 @@ export class LayoutService {
         return lenses;
     }
 
-    async findLayoutReferences(layoutName: string): Promise<vscode.Location[]> {
+    /**
+     * Trouver les références pour un layout
+     */
+    private async findLayoutReferences(layoutName: string): Promise<vscode.Location[]> {
         const uris = await vscode.workspace.findFiles('**/*.vue');
-
         const results: vscode.Location[] = [];
 
         for (const uri of uris) {
+            // Utilise la lecture de fichier Node
             let content: string;
-
             try {
                 content = fs.readFileSync(uri.fsPath, 'utf-8');
             } catch {
@@ -64,10 +66,9 @@ export class LayoutService {
             const regex = new RegExp(`layout\\s*:\\s*(['"\`])${layoutName}\\1`, 'g');
             let match;
             while ((match = regex.exec(content)) !== null) {
+                // Calcul position à la main
                 const start = TextUtils.indexToPosition(content, match.index);
-
                 const end = TextUtils.indexToPosition(content, match.index + match[0].length);
-
                 results.push(new vscode.Location(
                     uri,
                     new vscode.Range(
