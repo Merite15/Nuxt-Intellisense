@@ -1,26 +1,33 @@
-import { Position } from '../types';
+import * as vscode from 'vscode';
 
 export class TextUtils {
-    static indexToPosition(content: string, index: number): Position {
-        const lines = content.slice(0, index).split('\n');
-        return {
-            line: lines.length - 1,
-            character: lines[lines.length - 1].length
-        };
+    /**
+       * Converts a character index in a string to a VSCode Position
+       */
+    static indexToPosition(content: string, index: number): vscode.Position {
+        const before = content.slice(0, index);
+        const line = before.split('\n').length - 1;
+        const lineStartIndex = before.lastIndexOf('\n') + 1;
+        const character = index - lineStartIndex;
+        return new vscode.Position(line, character);
     }
 
-    static findMatches(regex: RegExp, content: string, startPos: number = 0): Array<{ index: number, text: string }> {
-        const matches = [];
-        let match;
+    /**
+     * Find all matches for a regex in content starting from a specific position
+     */
+    static findMatches(content: string, regex: RegExp, startPos: number = 0): vscode.Range[] {
+        const ranges: vscode.Range[] = [];
+        const matches = content.slice(startPos).matchAll(regex);
 
-        regex.lastIndex = startPos;
-        while ((match = regex.exec(content)) !== null) {
-            matches.push({
-                index: match.index,
-                text: match[0]
-            });
+        for (const match of matches) {
+            if (match.index !== undefined) {
+                const realIndex = startPos + match.index;
+                const start = this.indexToPosition(content, realIndex);
+                const end = this.indexToPosition(content, realIndex + match[0].length);
+                ranges.push(new vscode.Range(start, end));
+            }
         }
 
-        return matches;
+        return ranges;
     }
 }

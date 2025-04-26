@@ -1,53 +1,62 @@
 import * as path from 'path';
-import * as fs from 'fs';
 
+/**
+ * @author Merite15
+ * @created 2025-04-26 07:13:46
+ */
 export class PathUtils {
+    /**
+     * Convert PascalCase to kebab-case
+     */
     static pascalToKebabCase(str: string): string {
         return str
-            .replace(/([a-z0-9])([A-Z])/g, '$1-$2')
-            .replace(/([A-Z])([A-Z])(?=[a-z])/g, '$1-$2')
+            .split(/(?=[A-Z])/)
+            .join('-')
             .toLowerCase();
     }
 
-    static resolveWithExtension(filePath: string, nuxtRoot: string): string {
-        const extensions = ['.ts', '.js', '.vue'];
-
-        console.log(nuxtRoot);
-
-        if (extensions.includes(path.extname(filePath))) {
-            return filePath;
+    /**
+     * Check if an import path points to a specific file
+     */
+    static isImportPointingToFile(
+        importPath: string,
+        sourceFilePath: string,
+        targetFilePath: string,
+        projectRoot: string
+    ): boolean {
+        // Gestion des chemins relatifs (./ ou ../)
+        if (importPath.startsWith('.')) {
+            const sourceDir = path.dirname(sourceFilePath);
+            const resolvedPath = path.resolve(sourceDir, importPath);
+            return this.matchesWithExtension(resolvedPath, targetFilePath);
         }
 
-        for (const ext of extensions) {
-            const pathWithExt = filePath + ext;
-            if (fs.existsSync(pathWithExt)) {
-                return pathWithExt;
-            }
+        // Gestion des alias Nuxt (~ ou @)
+        if (importPath.startsWith('~') || importPath.startsWith('@')) {
+            const withoutAlias = importPath.substring(1);
+            const resolvedPath = path.join(projectRoot, withoutAlias);
+            return this.matchesWithExtension(resolvedPath, targetFilePath);
         }
 
-        for (const ext of extensions) {
-            const indexPath = path.join(filePath, `index${ext}`);
-            if (fs.existsSync(indexPath)) {
-                return indexPath;
-            }
-        }
-
-        return filePath;
+        return false;
     }
 
-    static isImportPointingToFile(importPath: string, importingFile: string, targetFile: string, nuxtRoot: string): boolean {
-        if (importPath.startsWith('./') || importPath.startsWith('../')) {
-            const importingDir = path.dirname(importingFile);
-            const resolvedPath = path.resolve(importingDir, importPath);
-            const resolvedWithExt = this.resolveWithExtension(resolvedPath, nuxtRoot);
-            return resolvedWithExt === targetFile;
+    /**
+     * Check if a path matches a target file, considering possible extensions
+     */
+    private static matchesWithExtension(sourcePath: string, targetPath: string): boolean {
+        if (sourcePath === targetPath) return true;
+
+        const extensions = ['.ts', '.js', '.vue'];
+
+        // Vérifier avec les extensions
+        for (const ext of extensions) {
+            if (sourcePath + ext === targetPath) return true;
         }
 
-        if (importPath.startsWith('~/') || importPath.startsWith('@/')) {
-            const aliasPath = importPath.substring(2);
-            const resolvedPath = path.join(nuxtRoot, aliasPath);
-            const resolvedWithExt = this.resolveWithExtension(resolvedPath, nuxtRoot);
-            return resolvedWithExt === targetFile;
+        // Vérifier les fichiers index
+        for (const ext of extensions) {
+            if (path.join(sourcePath, `index${ext}`) === targetPath) return true;
         }
 
         return false;

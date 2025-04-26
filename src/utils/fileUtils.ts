@@ -1,50 +1,47 @@
 import * as fs from 'fs';
 import * as path from 'path';
+import * as vscode from 'vscode';
 
+/**
+ * @author Merite15
+ * @created 2025-04-26 07:15:08
+ */
 export class FileUtils {
+    /**
+     * Find all directories with a specific name in the project
+     */
     static async findAllDirsByName(rootDir: string, dirName: string): Promise<string[]> {
         const dirs: string[] = [];
 
-        if (!fs.existsSync(rootDir)) return dirs;
+        // Vérifier si le répertoire racine existe
+        if (!fs.existsSync(rootDir)) {
+            return dirs;
+        }
 
-        const initialDirs = [
+        // Chemins standards Nuxt
+        const searchPaths = [
             rootDir,
-            path.join(rootDir, 'app'),
-            path.join(rootDir, 'app', 'base'),
-            path.join(rootDir, 'app', 'modules')
-        ].filter(dir => fs.existsSync(dir));
+            path.join(rootDir, 'src'),
+            path.join(rootDir, 'app')
+        ];
 
-        for (const initialDir of initialDirs) {
-            await this.recursiveDirSearch(initialDir, dirName, dirs);
+        // Rechercher dans chaque chemin
+        for (const searchPath of searchPaths) {
+            if (!fs.existsSync(searchPath)) continue;
+
+            const entries = await vscode.workspace.findFiles(
+                new vscode.RelativePattern(searchPath, `**/${dirName}`)
+            );
+
+            dirs.push(...entries.map(entry => path.dirname(entry.fsPath)));
         }
 
-        return dirs;
+        return [...new Set(dirs)]; // Éliminer les doublons
     }
 
-    static async recursiveDirSearch(dir: string, targetDirName: string, results: string[]): Promise<void> {
-        try {
-            const entries = fs.readdirSync(dir, { withFileTypes: true });
-
-            for (const entry of entries) {
-                const fullPath = path.join(dir, entry.name);
-                if (entry.isDirectory()) {
-                    if (entry.name === targetDirName) {
-                        results.push(fullPath);
-                    }
-                    if (!this.shouldSkipDirectory(entry.name)) {
-                        await this.recursiveDirSearch(fullPath, targetDirName, results);
-                    }
-                }
-            }
-        } catch (e) {
-            console.error(`Error searching directory ${dir}:`, e);
-        }
-    }
-
-    static shouldSkipDirectory(dirName: string): boolean {
-        return ['node_modules', '.nuxt', '.output', 'dist'].includes(dirName);
-    }
-
+    /**
+     * Check if a file should be skipped during search
+     */
     static shouldSkipFile(fsPath: string): boolean {
         return fsPath.includes('node_modules') ||
             fsPath.includes('.nuxt') ||
