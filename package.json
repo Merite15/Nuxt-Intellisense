@@ -3,7 +3,7 @@
   "license": "MIT",
   "displayName": "Nuxt Intellisense",
   "description": "Displays references to components, composables, and other exports used in your Nuxt 3 application.",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "publisher": "MeriteK",
   "engines": {
     "vscode": "^1.60.0"

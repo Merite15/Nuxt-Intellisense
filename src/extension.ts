@@ -892,6 +892,8 @@ class NuxtIntellisense implements vscode.CodeLensProvider {
     if (!this.nuxtProjectRoot) return [];
 
     const references: vscode.Location[] = [];
+    // Utilisé pour suivre les références déjà ajoutées et éviter les duplications
+    const addedReferences = new Set<string>();
 
     // Find the plugin file first
     const pluginUris = await vscode.workspace.findFiles(
@@ -923,18 +925,31 @@ class NuxtIntellisense implements vscode.CodeLensProvider {
         provides.push(match[1]);
       }
 
-      // 2. Advanced detection via `provide: { key: value }`
+      // 2. Advanced detection via `provide: { key: value }` including ES6 shorthand
       const provideObjectRegex = /provide\s*:\s*\{([\s\S]*?)\}/g;
-      const keyRegex = /['"`]?([$\w]+)['"`]?\s*:/g;
+
+      // Improved regex that captures three patterns:
+      // 1. 'key': value or "key": value or `key`: value
+      // 2. key: value
+      // 3. key, (ES6 shorthand)
+      const keyRegex = /(?:['"`]?([$\w]+)['"`]?\s*:|(\b[$\w]+),)/g;
 
       let provideObjectMatch: RegExpExecArray | null;
       while ((provideObjectMatch = provideObjectRegex.exec(pluginContent))) {
         const keysBlock = provideObjectMatch[1];
         let keyMatch: RegExpExecArray | null;
         while ((keyMatch = keyRegex.exec(keysBlock))) {
-          provides.push(keyMatch[1]);
+          // keyMatch[1] captures the key from pattern 1 or 2
+          // keyMatch[2] captures the key from ES6 shorthand (pattern 3)
+          const key = keyMatch[1] || keyMatch[2];
+          if (key) {
+            provides.push(key);
+          }
         }
       }
+
+      // Éliminer les doublons dans les clés fournies
+      provides = [...new Set(provides)];
 
       // 3. Detect directives
       const directiveRegex = /nuxtApp\.vueApp\.directive\s*\(\s*['"`]([\w-]+)['"`]/g;
@@ -943,6 +958,9 @@ class NuxtIntellisense implements vscode.CodeLensProvider {
         directives.push(match[1]);
       }
 
+      // Éliminer les doublons dans les directives
+      directives = [...new Set(directives)];
+
       // 🔍 DEBUG - show detected keys in plugins
       if (provides.length === 0 && directives.length === 0) {
         console.warn(`[PluginScanner] No provide/directive detected for ${pluginName}`);
@@ -950,6 +968,7 @@ class NuxtIntellisense implements vscode.CodeLensProvider {
         console.log(`[PluginScanner] Plugin "${pluginName}" exposes:`, provides, directives);
       }
     } catch (e) {
+      console.error(`[PluginScanner] Error analyzing plugin ${pluginName}:`, e);
       return references;
     }
 
@@ -974,7 +993,9 @@ class NuxtIntellisense implements vscode.CodeLensProvider {
             new RegExp(`Vue\\.prototype\\.\\$${key}\\b`, 'g'),
             new RegExp(`app\\.\\$${key}\\b`, 'g'),
             new RegExp(`this\\.\\$${key}\\b`, 'g'),
-            new RegExp(`const\\s+nuxtApp\\s*=\\s*useNuxtApp\\(\\)[^]*?\\{[^}]*\\$${key}\\b[^}]*\\}\\s*=\\s*nuxtApp`, 'gs')
+            new RegExp(`const\\s+nuxtApp\\s*=\\s*useNuxtApp\\(\\)[^]*?\\{[^}]*\\$${key}\\b[^}]*\\}\\s*=\\s*nuxtApp`, 'gs'),
+            // Ajout pour détecter la destructuration directe
+            new RegExp(`const\\s*\\{\\s*\\$${key}\\s*\\}\\s*=\\s*useNuxtApp\\(\\)`, 'g')
           ];
 
           for (const regex of patterns) {
@@ -983,13 +1004,20 @@ class NuxtIntellisense implements vscode.CodeLensProvider {
               const start = this.indexToPosition(fileContent, match.index);
               const end = this.indexToPosition(fileContent, match.index + match[0].length);
 
-              references.push(new vscode.Location(
-                uri,
-                new vscode.Range(
-                  new vscode.Position(start.line, start.character),
-                  new vscode.Position(end.line, end.character)
-                )
-              ));
+              // Créer une clé unique pour cette référence
+              const refKey = `${uri.fsPath}:${start.line}:${start.character}:${end.line}:${end.character}`;
+
+              // Vérifier si cette référence a déjà été ajoutée
+              if (!addedReferences.has(refKey)) {
+                addedReferences.add(refKey);
+                references.push(new vscode.Location(
+                  uri,
+                  new vscode.Range(
+                    new vscode.Position(start.line, start.character),
+                    new vscode.Position(end.line, end.character)
+                  )
+                ));
+              }
             }
           }
         }
@@ -1004,13 +1032,20 @@ class NuxtIntellisense implements vscode.CodeLensProvider {
               const start = this.indexToPosition(fileContent, match.index);
               const end = this.indexToPosition(fileContent, match.index + match[0].length);
 
-              references.push(new vscode.Location(
-                uri,
-                new vscode.Range(
-                  new vscode.Position(start.line, start.character),
-                  new vscode.Position(end.line, end.character)
-                )
-              ));
+              // Créer une clé unique pour cette référence
+              const refKey = `${uri.fsPath}:${start.line}:${start.character}:${end.line}:${end.character}`;
+
+              // Vérifier si cette référence a déjà été ajoutée
+              if (!addedReferences.has(refKey)) {
+                addedReferences.add(refKey);
+                references.push(new vscode.Location(
+                  uri,
+                  new vscode.Range(
+                    new vscode.Position(start.line, start.character),
+                    new vscode.Position(end.line, end.character)
+                  )
+                ));
+              }
             }
           }
         }
@@ -1023,13 +1058,20 @@ class NuxtIntellisense implements vscode.CodeLensProvider {
           const start = this.indexToPosition(fileContent, match.index);
           const end = this.indexToPosition(fileContent, match.index + match[0].length);
 
-          references.push(new vscode.Location(
-            uri,
-            new vscode.Range(
-              new vscode.Position(start.line, start.character),
-              new vscode.Position(end.line, end.character)
-            )
-          ));
+          // Créer une clé unique pour cette référence
+          const refKey = `${uri.fsPath}:${start.line}:${start.character}:${end.line}:${end.character}`;
+
+          // Vérifier si cette référence a déjà été ajoutée
+          if (!addedReferences.has(refKey)) {
+            addedReferences.add(refKey);
+            references.push(new vscode.Location(
+              uri,
+              new vscode.Range(
+                new vscode.Position(start.line, start.character),
+                new vscode.Position(end.line, end.character)
+              )
+            ));
+          }
         }
       } catch (e) {
         // Ignore reading errors
