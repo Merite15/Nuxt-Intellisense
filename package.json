@@ -2,7 +2,7 @@
   "name": "nuxt-intellisense",
   "license": "MIT",
   "displayName": "Nuxt Intellisense",
-  "description": "Displays references to components, composables, and other exports used in your Nuxt 3 application.",
+  "description": "Enhanced IntelliSense for Nuxt3 projects",
   "version": "0.5.1",
   "publisher": "MeriteK",
   "engines": {
@@ -39,61 +39,29 @@
     "url": "https://github.com/Merite15/Nuxt-Intelliphense"
   },
   "activationEvents": [
-    "onLanguage:vue",
-    "onLanguage:typescript",
-    "onLanguage:javascript"
+    "workspaceContains:nuxt.config.js",
+    "workspaceContains:nuxt.config.ts"
   ],
   "main": "./out/extension.js",
   "contributes": {
     "configuration": {
-      "title": "nuxt-intellisense",
+      "title": "Nuxt Intellisense",
       "properties": {
-        "nuxt-intellisense.enable": {
+        "nuxt-intellisense.showWelcomeMessage": {
           "type": "boolean",
           "default": true,
-          "description": "Enable or disable CodeLens for Nuxt 3"
-        },
-        "nuxt-intellisense.showComposables": {
-          "type": "boolean",
-          "default": true,
-          "description": "Show CodeLens for composables"
-        },
-        "nuxt-intellisense.showComponents": {
-          "type": "boolean",
-          "default": true,
-          "description": "Show CodeLens for components"
-        },
-        "nuxt-intellisense.showPlugins": {
-          "type": "boolean",
-          "default": true,
-          "description": "Show CodeLens for plugins"
-        },
-        "nuxt-intellisense.showMiddleware": {
-          "type": "boolean",
-          "default": true,
-          "description": "Show CodeLens for middleware"
-        },
-        "nuxt-intellisense.showLayouts": {
-          "type": "boolean",
-          "default": true,
-          "description": "Show CodeLens for layouts"
-        },
-        "nuxt-intellisense.showStores": {
-          "type": "boolean",
-          "default": true,
-          "description": "Show CodeLens for stores"
-        },
-        "nuxt-intellisense.cacheUpdateInterval": {
-          "type": "number",
-          "default": 30000,
-          "description": "Cache update interval in milliseconds"
+          "description": "Show welcome message when the extension is activated"
         }
       }
     },
     "commands": [
       {
-        "command": "nuxt-intellisense.refreshAutoImportCache",
-        "title": "Nuxt Intellisense: Refresh auto-import cache"
+        "command": "nuxt-intellisense.refreshCodeLens",
+        "title": "Refresh Nuxt CodeLens"
+      },
+      {
+        "command": "nuxt-intellisense.showDocumentation",
+        "title": "Show Nuxt Intellisense Documentation"
       }
     ]
   },
