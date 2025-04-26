@@ -33,13 +33,13 @@ export class NuxtIntellisense implements vscode.CodeLensProvider {
 
     private initializeServices() {
         if (this.nuxtProjectRoot) {
-            this.componentService = new ComponentService();
-            this.composableService = new ComposableService();
+            this.componentService = new ComponentService(this.autoImportCache, this.nuxtProjectRoot);
+            this.composableService = new ComposableService(this.autoImportCache);
             this.pluginService = new PluginService();
             this.middlewareService = new MiddlewareService();
             this.layoutService = new LayoutService();
-            this.storeService = new StoreService();
-            this.utilsService = new UtilsService();
+            this.storeService = new StoreService(this.autoImportCache);
+            this.utilsService = new UtilsService(this.autoImportCache, this.nuxtProjectRoot);
         }
     }
 
@@ -220,21 +220,21 @@ export class NuxtIntellisense implements vscode.CodeLensProvider {
         this.autoImportCache.clear();
 
         // Analyser les composants
-        const componentDirs = await FileUtils.findAllDirsByName('components');
+        const componentDirs = await FileUtils.findAllDirsByName(this.nuxtProjectRoot, 'components');
 
         for (const dir of componentDirs) {
             await this.componentService?.scanComponentsDirectory(dir);
         }
 
         // Analyser les composables
-        const composablesDirs = await FileUtils.findAllDirsByName('composables');
+        const composablesDirs = await FileUtils.findAllDirsByName(this.nuxtProjectRoot, 'composables');
 
         for (const dir of composablesDirs) {
             await this.composableService?.scanComposablesDirectory(dir);
         }
 
         // Analyser les stores
-        const storeDirs = await FileUtils.findAllDirsByName('stores');
+        const storeDirs = await FileUtils.findAllDirsByName(this.nuxtProjectRoot, 'stores');
 
         for (const dir of storeDirs) {
             await this.storeService?.scanStoresDirectory(dir);

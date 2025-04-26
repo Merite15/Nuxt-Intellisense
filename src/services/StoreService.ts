@@ -2,10 +2,11 @@ import * as vscode from 'vscode';
 import * as fs from 'fs';
 import { FileUtils } from '../utils/fileUtils';
 import { TextUtils } from '../utils/textUtils';
-import { Constants } from '../utils/constants';
 import type { NuxtComponentInfo } from '../types';
 
 export class StoreService {
+    constructor(private autoImportCache: Map<string, NuxtComponentInfo[]>) { }
+
     async provideCodeLenses(document: vscode.TextDocument): Promise<vscode.CodeLens[]> {
         const lenses: vscode.CodeLens[] = [];
         const text = document.getText();
@@ -174,6 +175,6 @@ export class StoreService {
             }
         }
 
-        Constants.autoImportCache.set('stores', storeInfos);
+        this.autoImportCache.set('stores', storeInfos);
     }
 }

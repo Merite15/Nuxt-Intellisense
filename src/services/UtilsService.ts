@@ -3,11 +3,15 @@ import * as fs from 'fs';
 import { FileUtils } from '../utils/fileUtils';
 import { PathUtils } from '../utils/pathUtils';
 import { TextUtils } from '../utils/textUtils';
-import { Constants } from '../utils/constants';
 import * as path from 'path';
 import type { NuxtComponentInfo } from '../types';
 
 export class UtilsService {
+    constructor(
+        private autoImportCache: Map<string, NuxtComponentInfo[]>,
+        private nuxtProjectRoot: string
+    ) { }
+
     async findUtilsReferences(document: vscode.TextDocument, name: string, position: vscode.Position): Promise<vscode.Location[]> {
         try {
             const results: vscode.Location[] = [];
@@ -58,7 +62,7 @@ export class UtilsService {
                 while ((match = importRegex.exec(content)) !== null) {
                     const importPath = match[1].slice(1, -1); // Enlever les guillemets
 
-                    if (PathUtils.isImportPointingToFile(importPath, uri.fsPath, document.uri.fsPath)) {
+                    if (PathUtils.isImportPointingToFile(importPath, uri.fsPath, document.uri.fsPath, this.nuxtProjectRoot)) {
                         const nameIndex = content.indexOf(name, match.index);
 
                         if (nameIndex !== -1) {
@@ -173,7 +177,7 @@ export class UtilsService {
         const utilsInfos: NuxtComponentInfo[] = [];
 
         for (const dirName of utilsDirNames) {
-            const dirs = await FileUtils.findAllDirsByName(dirName);
+            const dirs = await FileUtils.findAllDirsByName(this.nuxtProjectRoot, dirName);
 
             for (const dir of dirs) {
                 if (!fs.existsSync(dir)) continue;
@@ -215,6 +219,6 @@ export class UtilsService {
             }
         }
 
-        Constants.autoImportCache.set('utils', utilsInfos);
+        this.autoImportCache.set('utils', utilsInfos);
     }
 }

@@ -3,9 +3,13 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { PathUtils } from '../utils/pathUtils';
 import { NuxtComponentInfo } from '../types';
-import { Constants } from '../utils/constants';
 
 export class ComponentService {
+    constructor(
+        private autoImportCache: Map<string, NuxtComponentInfo[]>,
+        private nuxtProjectRoot: string
+    ) { }
+
     async provideCodeLenses(document: vscode.TextDocument): Promise<vscode.CodeLens[]> {
         const lenses: vscode.CodeLens[] = [];
 
@@ -33,7 +37,6 @@ export class ComponentService {
 
         // D'abord chercher le script setup
         while ((match = scriptSetupRegex.exec(text))) {
-            console.log('Ola');
             const pos = document.positionAt(match.index);
 
             const range = new vscode.Range(pos.line, 0, pos.line, 0);
@@ -59,8 +62,6 @@ export class ComponentService {
 
         // 2.2 Pour les composants avec defineComponent (seulement si pas de script setup trouvé)
         if (!hasAddedLens) {
-            console.log('Oik');
-
             const defineComponentRegex = /defineComponent\s*\(/g;
 
             while ((match = defineComponentRegex.exec(text))) {
@@ -89,9 +90,6 @@ export class ComponentService {
 
         // 2.3 Pour les composants Nuxt spécifiques (seulement si pas de script setup trouvé)
         if (!hasAddedLens) {
-            console.log('Ok');
-
-
             const defineNuxtComponentRegex = /defineNuxtComponent\s*\(/g;
 
             while ((match = defineNuxtComponentRegex.exec(text))) {
@@ -119,8 +117,6 @@ export class ComponentService {
 
         // 2.4 Si aucune des méthodes ci-dessus n'a trouvé de balise, chercher la balise template
         if (!hasAddedLens) {
-            console.log('alo');
-
             const templateRegex = /<template[^>]*>/g;
 
             match = templateRegex.exec(text);
@@ -237,8 +233,13 @@ export class ComponentService {
     async findAllComponentsDirs(): Promise<string[]> {
         const dirs: string[] = [];
 
+        if (!this.nuxtProjectRoot) return dirs;
+
         const recurse = (dir: string) => {
             const entries = fs.readdirSync(dir, { withFileTypes: true });
+
+            console.log(entries);
+
 
             for (const entry of entries) {
                 const fullPath = path.join(dir, entry.name);
@@ -251,6 +252,8 @@ export class ComponentService {
                 }
             }
         };
+
+        recurse(this.nuxtProjectRoot);
 
         return dirs;
     }
@@ -296,6 +299,6 @@ export class ComponentService {
             });
         }
 
-        Constants.autoImportCache.set('components', componentInfos);
+        this.autoImportCache.set('components', componentInfos);
     }
 }

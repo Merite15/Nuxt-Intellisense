@@ -1,5 +1,4 @@
 import * as path from 'path';
-import { Constants } from './constants';
 import * as fs from 'fs';
 
 /**
@@ -20,17 +19,22 @@ export class PathUtils {
     /**
      * Vérifie si un chemin d'import pointe vers notre fichier
      */
-    static isImportPointingToFile(importPath: string, importingFile: string, targetFile: string): boolean {
-        // Gérer les importations relatives et alias (~/, @/)
+    static isImportPointingToFile(importPath: string, importingFile: string, targetFile: string, nuxtProjectRoot: string): boolean {
         if (importPath.startsWith('./') || importPath.startsWith('../')) {
             const importingDir = path.dirname(importingFile);
+
             const resolvedPath = path.resolve(importingDir, importPath);
+
             const resolvedWithExt = this.resolveWithExtension(resolvedPath);
+
             return resolvedWithExt === targetFile;
         } else if (importPath.startsWith('~/') || importPath.startsWith('@/')) {
-            const aliasPath = importPath.substring(2); // Enlever ~/ ou @/
-            const resolvedPath = path.join(Constants.nuxtProjectRoot!, aliasPath);
+            const aliasPath = importPath.substring(2);
+
+            const resolvedPath = path.join(nuxtProjectRoot!, aliasPath);
+
             const resolvedWithExt = this.resolveWithExtension(resolvedPath);
+
             return resolvedWithExt === targetFile;
         }
         return false;

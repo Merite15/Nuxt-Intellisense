@@ -44,7 +44,7 @@ export function activate(context: vscode.ExtensionContext) {
   const showWelcomeMessage = config.get('showWelcomeMessage', true);
   if (showWelcomeMessage) {
     vscode.window.showInformationMessage(
-      'Nuxt Intellisense is now active! Start working with your Nuxt project references.',
+      'Nuxt Intellisense is now active! Start working with in your Nuxt project.',
       'Show Documentation',
       'Don\'t Show Again'
     ).then(selection => {

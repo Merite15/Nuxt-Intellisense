@@ -3,9 +3,10 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { TextUtils } from '../utils/textUtils';
 import type { NuxtComponentInfo } from '../types';
-import { Constants } from '../utils/constants';
 
 export class ComposableService {
+    constructor(private autoImportCache: Map<string, NuxtComponentInfo[]>) { }
+
     async provideCodeLenses(document: vscode.TextDocument): Promise<vscode.CodeLens[]> {
         const lenses: vscode.CodeLens[] = [];
         const text = document.getText();
@@ -150,6 +151,6 @@ export class ComposableService {
             }
         }
 
-        Constants.autoImportCache.set('composables', composableInfos);
+        this.autoImportCache.set('composables', composableInfos);
     }
 }

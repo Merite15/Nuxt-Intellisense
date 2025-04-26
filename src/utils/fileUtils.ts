@@ -1,6 +1,5 @@
 import * as fs from 'fs';
 import * as path from 'path';
-import { Constants } from './constants';
 
 /**
  * @author Merite15
@@ -10,18 +9,16 @@ export class FileUtils {
     /**
      * Find all directories with a specific name in the project
      */
-    static async findAllDirsByName(dirName: string): Promise<string[]> {
+    static async findAllDirsByName(nuxtProjectRoot: string, dirName: string): Promise<string[]> {
         const dirs: string[] = [];
 
-        if (!Constants.nuxtProjectRoot) return dirs;
+        if (!nuxtProjectRoot) return dirs;
 
-        // Directories to check initially - including Nuxt 3 standard and Nuxt 4 compatibility mode
         const initialDirs = [
-            Constants.nuxtProjectRoot,
-            path.join(Constants.nuxtProjectRoot, 'app'),
-            path.join(Constants.nuxtProjectRoot, 'app', 'base'),
-            // Add other potential layer directories
-            path.join(Constants.nuxtProjectRoot, 'app', 'modules')
+            nuxtProjectRoot,
+            path.join(nuxtProjectRoot, 'app'),
+            path.join(nuxtProjectRoot, 'app', 'base'),
+            path.join(nuxtProjectRoot, 'app', 'modules')
         ].filter(dir => fs.existsSync(dir));
 
         for (const initialDir of initialDirs) {
@@ -35,7 +32,7 @@ export class FileUtils {
                             if (entry.name === dirName) {
                                 dirs.push(fullPath);
                             }
-                            // Don't recurse into node_modules
+
                             if (entry.name !== 'node_modules' && entry.name !== '.nuxt' && entry.name !== '.output') {
                                 recurse(fullPath); // continuer la récursion
                             }
