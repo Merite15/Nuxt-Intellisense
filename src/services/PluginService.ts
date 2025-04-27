@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs';
+import * as path from 'path';
 import { TextUtils } from '../utils/textUtils';
 
 /**
@@ -16,12 +17,13 @@ export class PluginService {
 
         while ((match = defineNuxtPluginRegex.exec(text))) {
             const pos = document.positionAt(match.index);
+
             const range = new vscode.Range(pos.line, 0, pos.line, 0);
 
-            const pluginName = document.fileName.split('/').pop()?.replace(/\.(js|ts)$/, '');
-            if (!pluginName) continue;
+            const pluginName = path.basename(document.fileName, path.extname(document.fileName));
 
             const references = await this.findPluginReferences(pluginName);
+
             const referenceCount = references.length;
 
             lenses.push(

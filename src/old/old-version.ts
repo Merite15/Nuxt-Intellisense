@@ -605,35 +605,6 @@ class NuxtIntellisense implements vscode.CodeLensProvider {
     }
 
     /**
-     * Obtenir tous les fichiers récursivement dans un répertoire
-     */
-    private async getFilesRecursively(dir: string, extensions: string[]): Promise<string[]> {
-        const files: string[] = [];
-
-        if (!fs.existsSync(dir)) {
-            return files;
-        }
-
-        const dirEntries = fs.readdirSync(dir, { withFileTypes: true });
-
-        for (const entry of dirEntries) {
-            const entryPath = path.join(dir, entry.name);
-
-            if (entry.isDirectory()) {
-                if (entry.name === 'node_modules') continue;
-
-                const subFiles = await this.getFilesRecursively(entryPath, extensions);
-
-                files.push(...subFiles);
-            } else if (extensions.includes(path.extname(entry.name))) {
-                files.push(entryPath);
-            }
-        }
-
-        return files;
-    }
-
-    /**
      * Trouver toutes les références pour un composable, y compris les auto-importations
      */
     private async findAllReferences(document: vscode.TextDocument, name: string, position: vscode.Position): Promise<vscode.Location[]> {

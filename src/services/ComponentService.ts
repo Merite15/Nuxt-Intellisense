@@ -238,9 +238,6 @@ export class ComponentService {
         const recurse = (dir: string) => {
             const entries = fs.readdirSync(dir, { withFileTypes: true });
 
-            console.log(entries);
-
-
             for (const entry of entries) {
                 const fullPath = path.join(dir, entry.name);
 
