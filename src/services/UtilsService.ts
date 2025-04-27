@@ -16,7 +16,10 @@ export class UtilsService {
         try {
             const results: vscode.Location[] = [];
 
-            const uris = await vscode.workspace.findFiles('**/*.{vue,js,ts}');
+            const uris = await vscode.workspace.findFiles(
+                '**/*.{vue,js,ts}',
+                '{**/node_modules/**,**/.nuxt/**,**/.output/**,**/dist/**}'
+            );
 
             // Première passe : utiliser le provider de références natif de VS Code
             const nativeReferences = await vscode.commands.executeCommand<vscode.Location[]>(
@@ -27,25 +30,13 @@ export class UtilsService {
 
             // Ajouter les références natives filtrées
             for (const ref of nativeReferences) {
-                if (!ref.uri.fsPath.includes('.nuxt') &&
-                    !ref.uri.fsPath.includes('node_modules') &&
-                    !ref.uri.fsPath.includes('.output') &&
-                    !ref.uri.fsPath.includes('dist') &&
-                    !(ref.uri.fsPath === document.uri.fsPath && ref.range.start.line === position.line)) {
+                if (!(ref.uri.fsPath === document.uri.fsPath && ref.range.start.line === position.line)) {
                     results.push(ref);
                 }
             }
 
             // Deuxième passe : recherche dans tous les fichiers du workspace
             for (const uri of uris) {
-                // Exclure les fichiers non pertinents
-                if (uri.fsPath.includes('node_modules') ||
-                    uri.fsPath.includes('.nuxt') ||
-                    uri.fsPath.includes('.output') ||
-                    uri.fsPath.includes('dist')) {
-                    continue;
-                }
-
                 if (uri.fsPath === document.uri.fsPath) continue;
 
                 let content: string;
