@@ -30,7 +30,9 @@ export class UtilsService {
 
             // Ajouter les références natives filtrées
             for (const ref of nativeReferences) {
-                if (!(ref.uri.fsPath === document.uri.fsPath && ref.range.start.line === position.line)) {
+                if (!(ref.uri.fsPath === document.uri.fsPath && ref.range.start.line === position.line) &&
+                    !ref.uri.fsPath.includes('/.nuxt/') &&
+                    !ref.uri.fsPath.includes('\\.nuxt\\')) {
                     results.push(ref);
                 }
             }
