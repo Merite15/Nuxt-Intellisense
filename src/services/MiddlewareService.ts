@@ -52,7 +52,10 @@ export class MiddlewareService {
     }
 
     async findMiddlewareReferences(middlewareName: string): Promise<vscode.Location[]> {
-        const uris = await vscode.workspace.findFiles('**/pages/**/*.vue');
+        const uris = await vscode.workspace.findFiles(
+            '**/pages/**/*.vue',
+            '{**/node_modules/**,**/.nuxt/**,**/.output/**,**/dist/**}'
+        );
 
         const results: vscode.Location[] = [];
 

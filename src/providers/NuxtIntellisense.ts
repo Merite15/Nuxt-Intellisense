@@ -176,6 +176,34 @@ export class NuxtIntellisense implements vscode.CodeLensProvider {
         };
     }
 
+    // private getFileInfo(document: vscode.TextDocument) {
+    //     const fileDir = path.dirname(document.fileName);
+    //     const fileExtension = path.extname(document.fileName);
+
+    //     const normalizedDir = fileDir.replace(/\\/g, '/');
+
+    //     const inFolder = (folder: string) =>
+    //         new RegExp(`(^|/)${folder}(/|$)`).test(normalizedDir);
+
+    //     return {
+    //         isVueFile: fileExtension === '.vue',
+    //         isComponent: inFolder('components'),
+    //         isComposable: inFolder('composables'),
+    //         isPlugin: inFolder('plugins'),
+    //         isMiddleware: inFolder('middleware'),
+    //         isLayout: inFolder('layouts'),
+    //         isStore: inFolder('stores') || inFolder('store'),
+    //         isUtil:
+    //             inFolder('utils') ||
+    //             inFolder('lib') ||
+    //             inFolder('services') ||
+    //             inFolder('types') ||
+    //             inFolder('helpers') ||
+    //             inFolder('constants') ||
+    //             inFolder('schemas')
+    //     };
+    // }
+
     private async findNuxtProjectRoot(uri: vscode.Uri): Promise<string | null> {
         let currentDir = path.dirname(uri.fsPath);
         const root = path.parse(currentDir).root;

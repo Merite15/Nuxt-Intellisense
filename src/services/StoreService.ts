@@ -65,7 +65,11 @@ export class StoreService {
                 `${storeName.replace(/-/g, '_')}s`
             ];
 
-            const uris = await vscode.workspace.findFiles('**/*.{vue,js,ts}');
+            const uris = await vscode.workspace.findFiles(
+                '**/*.{vue,js,ts}',
+                '{**/node_modules/**,**/.nuxt/**,**/.output/**,**/dist/**}'
+            );
+
             const results: vscode.Location[] = [];
             const storeDefinitions: Map<string, string> = new Map(); // Pour stocker les id -> hookName
             const storeDefinitionFiles: Set<string> = new Set(); // Pour stocker les chemins des fichiers de définition de store

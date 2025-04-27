@@ -170,14 +170,13 @@ export class ComponentService {
         const results: vscode.Location[] = [];
 
         // Utiliser findFiles pour trouver tous les fichiers pertinents dans le workspace
-        const uris = await vscode.workspace.findFiles('**/*.{vue,js,ts}');
+        const uris = await vscode.workspace.findFiles(
+            '**/*.{vue,js,ts}',
+            '{**/node_modules/**,**/.nuxt/**,**/.output/**,**/dist/**}'
+        );
 
         for (const uri of uris) {
-            if (uri.fsPath.includes('node_modules') ||
-                uri.fsPath.includes('.nuxt') ||
-                uri.fsPath.includes('.output') ||
-                uri.fsPath.includes('dist') ||
-                path.basename(uri.fsPath) === 'app.vue' ||
+            if (path.basename(uri.fsPath) === 'app.vue' ||
                 path.basename(uri.fsPath) === 'error.vue') {
                 continue;
             }

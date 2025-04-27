@@ -53,7 +53,7 @@ export class PluginService {
         // Find the plugin file first
         const pluginUris = await vscode.workspace.findFiles(
             `**/plugins/${pluginName}.{js,ts}`,
-            '**/node_modules/**'
+            '{**/node_modules/**,**/.nuxt/**,**/.output/**,**/dist/**}'
         );
 
         if (pluginUris.length === 0) return references;

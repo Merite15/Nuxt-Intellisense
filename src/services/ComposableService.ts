@@ -59,15 +59,14 @@ export class ComposableService {
             }
 
             // Utiliser findFiles pour trouver tous les fichiers pertinents dans le workspace
-            const uris = await vscode.workspace.findFiles('**/*.{vue,js,ts}');
+            const uris = await vscode.workspace.findFiles(
+                '**/*.{vue,js,ts}',
+                '{**/node_modules/**,**/.nuxt/**,**/.output/**,**/dist/**}'
+            );
 
             for (const uri of uris) {
-                // Ignorer les fichiers générés et le fichier courant
-                if (uri.fsPath.includes('node_modules') ||
-                    uri.fsPath.includes('.nuxt') ||
-                    uri.fsPath.includes('.output') ||
-                    uri.fsPath.includes('dist') ||
-                    uri.fsPath === document.uri.fsPath) {
+                // Ignorer le fichier courant
+                if (uri.fsPath === document.uri.fsPath) {
                     continue;
                 }
 

@@ -6,6 +6,7 @@ import * as path from 'path';
 export class LayoutService {
     async provideCodeLenses(document: vscode.TextDocument): Promise<vscode.CodeLens[]> {
         const lenses: vscode.CodeLens[] = [];
+
         const text = document.getText();
 
         const layoutSetupRegex = /<script\s+setup[^>]*>|<template>/g;
@@ -20,6 +21,7 @@ export class LayoutService {
 
             // Rechercher les références
             const references = await this.findLayoutReferences(layoutName);
+
             const referenceCount = references.length;
 
             if (layoutName === 'default') {
@@ -29,16 +31,14 @@ export class LayoutService {
                         command: ''
                     })
                 );
-            } else if (referenceCount > 0) {
+            } else {
                 lenses.push(
                     new vscode.CodeLens(range, {
                         title: `🖼️ ${referenceCount} reference${referenceCount > 1 ? 's' : ''}`,
-                        command: 'editor.action.showReferences',
-                        arguments: [
-                            document.uri,
-                            pos,
-                            references
-                        ]
+                        command: referenceCount > 0 ? 'editor.action.showReferences' : '',
+                        arguments: referenceCount > 0
+                            ? [document.uri, pos, references]
+                            : undefined
                     })
                 );
             }
@@ -51,15 +51,19 @@ export class LayoutService {
      * Trouver les références pour un layout
      */
     private async findLayoutReferences(layoutName: string): Promise<vscode.Location[]> {
-        const uris = await vscode.workspace.findFiles('**/*.vue');
+        const uris = await vscode.workspace.findFiles(
+            '**/*.vue',
+            '{**/node_modules/**,**/.nuxt/**,**/.output/**,**/dist/**}'
+        );
+
         const results: vscode.Location[] = [];
 
         for (const uri of uris) {
-            // Utilise la lecture de fichier Node
             let content: string;
+
             try {
                 content = fs.readFileSync(uri.fsPath, 'utf-8');
-            } catch {
+            } catch (e) {
                 continue;
             }
 
