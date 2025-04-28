@@ -8,7 +8,12 @@ import { TextUtils } from '../utils/textUtils';
  * @created 2025-04-26 07:28:27
  */
 export class PluginService {
+    constructor() {
+        console.log('[PluginService] Service initialized');
+    }
+
     async provideCodeLenses(document: vscode.TextDocument): Promise<vscode.CodeLens[]> {
+        console.log('[provideCodeLenses] Starting analysis for document:', document.uri.toString());
         const lenses: vscode.CodeLens[] = [];
         const text = document.getText();
 
@@ -16,15 +21,15 @@ export class PluginService {
         let match: RegExpExecArray | null;
 
         while ((match = defineNuxtPluginRegex.exec(text))) {
+            console.log('[provideCodeLenses] Found plugin definition at position:', match.index);
             const pos = document.positionAt(match.index);
-
             const range = new vscode.Range(pos.line, 0, pos.line, 0);
-
             const pluginName = path.basename(document.fileName, path.extname(document.fileName));
 
+            console.log('[provideCodeLenses] Analyzing plugin:', pluginName);
             const references = await this.findPluginReferences(pluginName);
-
             const referenceCount = references.length;
+            console.log('[provideCodeLenses] Found', referenceCount, 'references for plugin:', pluginName);
 
             lenses.push(
                 new vscode.CodeLens(range, {
@@ -39,108 +44,110 @@ export class PluginService {
             );
         }
 
+        console.log('[provideCodeLenses] Returning', lenses.length, 'lenses');
         return lenses;
     }
 
-    /**
-     * Trouver les références pour un plugin Nuxt
-     */
     async findPluginReferences(pluginName: string): Promise<vscode.Location[]> {
+        console.log('[findPluginReferences] Starting search for plugin:', pluginName);
         const references: vscode.Location[] = [];
-        // Utilisé pour suivre les références déjà ajoutées et éviter les duplications
         const addedReferences = new Set<string>();
 
-        // Find the plugin file first
+        console.log('[findPluginReferences] Searching for plugin file');
         const pluginUris = await vscode.workspace.findFiles(
             `**/plugins/${pluginName}.{js,ts}`,
             '{**/node_modules/**,**/.nuxt/**,**/.output/**,**/dist/**}'
         );
 
-        if (pluginUris.length === 0) return references;
-
-        const pluginPath = pluginUris[0].fsPath;
-        let pluginContent: string;
-
-        try {
-            pluginContent = fs.readFileSync(pluginPath, 'utf-8');
-        } catch (e) {
+        if (pluginUris.length === 0) {
+            console.log('[findPluginReferences] Plugin file not found');
             return references;
         }
 
-        // Extract provides and directives
+        const pluginPath = pluginUris[0].fsPath;
+        console.log('[findPluginReferences] Found plugin file:', pluginPath);
+
+        let pluginContent: string;
+        try {
+            pluginContent = fs.readFileSync(pluginPath, 'utf-8');
+            console.log('[findPluginReferences] Successfully read plugin file');
+        } catch (e) {
+            console.error('[findPluginReferences] Error reading plugin file:', e);
+            return references;
+        }
+
         let provides: string[] = [];
         let hasDirectives: boolean = false;
         let directives: string[] = [];
 
         try {
-            // 1. Classic detection via nuxtApp.provide('key', ...)
-            const provideRegex = /nuxtApp\.provide\s*\(\s*['"`]([$\w]+)['"`]/g;
+            console.log('[findPluginReferences] Analyzing plugin content for provides and directives');
+
+            // Classic provide detection
+            const provideRegex = /nuxtApp\.provide\s*\(\s*['\"`]([$\w]+)['\"`]/g;
             let match: RegExpExecArray | null;
             while ((match = provideRegex.exec(pluginContent))) {
+                console.log('[findPluginReferences] Found classic provide:', match[1]);
                 provides.push(match[1]);
             }
 
-            // 2. Advanced detection via `provide: { key: value }` including ES6 shorthand
+            // Advanced provide detection
             const provideObjectRegex = /provide\s*:\s*\{([\s\S]*?)\}/g;
-
-            // Improved regex that captures three patterns:
-            // 1. 'key': value or "key": value or `key`: value
-            // 2. key: value
-            // 3. key, (ES6 shorthand)
-            const keyRegex = /(?:['"`]?([$\w]+)['"`]?\s*:|(\b[$\w]+),)/g;
+            const keyRegex = /(?:['\"`]?([$\w]+)['\"`]?\s*:|(\\b[$\w]+),)/g;
 
             let provideObjectMatch: RegExpExecArray | null;
             while ((provideObjectMatch = provideObjectRegex.exec(pluginContent))) {
+                console.log('[findPluginReferences] Found provide object');
                 const keysBlock = provideObjectMatch[1];
                 let keyMatch: RegExpExecArray | null;
                 while ((keyMatch = keyRegex.exec(keysBlock))) {
-                    // keyMatch[1] captures the key from pattern 1 or 2
-                    // keyMatch[2] captures the key from ES6 shorthand (pattern 3)
                     const key = keyMatch[1] || keyMatch[2];
                     if (key) {
+                        console.log('[findPluginReferences] Found object provide key:', key);
                         provides.push(key);
                     }
                 }
             }
 
-            // Éliminer les doublons dans les clés fournies
             provides = [...new Set(provides)];
+            console.log('[findPluginReferences] Total unique provides:', provides.length);
 
-            // 3. Detect directives
-            const directiveRegex = /nuxtApp\.vueApp\.directive\s*\(\s*['"`]([\w-]+)['"`]/g;
+            // Directive detection
+            const directiveRegex = /nuxtApp\.vueApp\.directive\s*\(\s*['\"`]([\w-]+)['\"`]/g;
             while ((match = directiveRegex.exec(pluginContent))) {
                 hasDirectives = true;
+                console.log('[findPluginReferences] Found directive:', match[1]);
                 directives.push(match[1]);
             }
 
-            // Éliminer les doublons dans les directives
             directives = [...new Set(directives)];
+            console.log('[findPluginReferences] Total unique directives:', directives.length);
 
-            // 🔍 DEBUG - show detected keys in plugins
-            if (provides.length === 0 && directives.length === 0) {
-                console.warn(`[PluginScanner] No provide/directive detected for ${pluginName}`);
-            } else {
-                console.log(`[PluginScanner] Plugin "${pluginName}" exposes:`, provides, directives);
-            }
         } catch (e) {
-            console.error(`[PluginScanner] Error analyzing plugin ${pluginName}:`, e);
+            console.error('[findPluginReferences] Error analyzing plugin content:', e);
             return references;
         }
 
-        // Find all potential files that could reference the plugin
+        console.log('[findPluginReferences] Searching for usage in project files');
         const allFileUris = await vscode.workspace.findFiles(
             '**/*.{vue,js,ts}',
             '**/node_modules/**'
         );
+        console.log('[findPluginReferences] Found', allFileUris.length, 'files to analyze');
 
         for (const uri of allFileUris) {
-            if (uri.fsPath.includes('.nuxt') || uri.fsPath === pluginPath) continue;
+            if (uri.fsPath.includes('.nuxt') || uri.fsPath === pluginPath) {
+                console.log('[findPluginReferences] Skipping file:', uri.fsPath);
+                continue;
+            }
 
             try {
+                console.log('[findPluginReferences] Analyzing file:', uri.fsPath);
                 const fileContent = fs.readFileSync(uri.fsPath, 'utf-8');
 
-                // Check for provides usage
+                // Check provides usage
                 for (const key of provides) {
+                    console.log('[findPluginReferences] Searching for provide usage:', key);
                     const patterns = [
                         new RegExp(`useNuxtApp\\(\\)\\s*\\.\\s*\\$${key}\\b`, 'g'),
                         new RegExp(`(const|let|var)\\s+\\{[^}]*\\$${key}\\b[^}]*\\}\\s*=\\s*(useNuxtApp\\(\\)|nuxtApp)`, 'g'),
@@ -149,22 +156,18 @@ export class PluginService {
                         new RegExp(`app\\.\\$${key}\\b`, 'g'),
                         new RegExp(`this\\.\\$${key}\\b`, 'g'),
                         new RegExp(`const\\s+nuxtApp\\s*=\\s*useNuxtApp\\(\\)[^]*?\\{[^}]*\\$${key}\\b[^}]*\\}\\s*=\\s*nuxtApp`, 'gs'),
-                        // Ajout pour détecter la destructuration directe
                         new RegExp(`const\\s*\\{\\s*\\$${key}\\s*\\}\\s*=\\s*useNuxtApp\\(\\)`, 'g')
                     ];
 
                     for (const regex of patterns) {
                         let match: RegExpExecArray | null;
                         while ((match = regex.exec(fileContent))) {
-                            const start = TextUtils.indexToPosition(fileContent, match.index);
-                            const end = TextUtils.indexToPosition(fileContent, match.index + match[0].length);
-
-                            // Créer une clé unique pour cette référence
-                            const refKey = `${uri.fsPath}:${start.line}:${start.character}:${end.line}:${end.character}`;
-
-                            // Vérifier si cette référence a déjà été ajoutée
+                            const refKey = `${uri.fsPath}:${match.index}`;
                             if (!addedReferences.has(refKey)) {
+                                console.log('[findPluginReferences] Found new reference for key:', key);
                                 addedReferences.add(refKey);
+                                const start = TextUtils.indexToPosition(fileContent, match.index);
+                                const end = TextUtils.indexToPosition(fileContent, match.index + match[0].length);
                                 references.push(new vscode.Location(
                                     uri,
                                     new vscode.Range(
@@ -177,22 +180,20 @@ export class PluginService {
                     }
                 }
 
-                // Check for directives usage
+                // Check directives usage
                 if (hasDirectives) {
                     for (const directive of directives) {
+                        console.log('[findPluginReferences] Searching for directive usage:', directive);
                         const directiveRegex = new RegExp(`\\sv-${directive}\\b|\\s:v-${directive}\\b`, 'g');
                         let match: RegExpExecArray | null;
 
                         while ((match = directiveRegex.exec(fileContent))) {
-                            const start = TextUtils.indexToPosition(fileContent, match.index);
-                            const end = TextUtils.indexToPosition(fileContent, match.index + match[0].length);
-
-                            // Créer une clé unique pour cette référence
-                            const refKey = `${uri.fsPath}:${start.line}:${start.character}:${end.line}:${end.character}`;
-
-                            // Vérifier si cette référence a déjà été ajoutée
+                            const refKey = `${uri.fsPath}:${match.index}`;
                             if (!addedReferences.has(refKey)) {
+                                console.log('[findPluginReferences] Found new directive reference:', directive);
                                 addedReferences.add(refKey);
+                                const start = TextUtils.indexToPosition(fileContent, match.index);
+                                const end = TextUtils.indexToPosition(fileContent, match.index + match[0].length);
                                 references.push(new vscode.Location(
                                     uri,
                                     new vscode.Range(
@@ -205,20 +206,19 @@ export class PluginService {
                     }
                 }
 
-                // Check for direct imports of the plugin
-                const importRegex = new RegExp(`import\\s+[^;]*['\`"]~/plugins/${pluginName}['\`"]`, 'g');
+                // Check direct imports
+                console.log('[findPluginReferences] Checking for direct imports');
+                const importRegex = new RegExp(`import\\s+[^;]*['"\`]~/plugins/${pluginName}['"\`]`, 'g');
                 let match: RegExpExecArray | null;
 
                 while ((match = importRegex.exec(fileContent))) {
-                    const start = TextUtils.indexToPosition(fileContent, match.index);
-                    const end = TextUtils.indexToPosition(fileContent, match.index + match[0].length);
-
-                    // Créer une clé unique pour cette référence
-                    const refKey = `${uri.fsPath}:${start.line}:${start.character}:${end.line}:${end.character}`;
-
-                    // Vérifier si cette référence a déjà été ajoutée
-                    if (!addedReferences.has(refKey)) {
+                    const refKey = `${uri.fsPath}:${match.index}`;
+                    if (!addedReferences
+                        .has(refKey)) {
+                        console.log('[findPluginReferences] Found new import reference');
                         addedReferences.add(refKey);
+                        const start = TextUtils.indexToPosition(fileContent, match.index);
+                        const end = TextUtils.indexToPosition(fileContent, match.index + match[0].length);
                         references.push(new vscode.Location(
                             uri,
                             new vscode.Range(
@@ -229,10 +229,11 @@ export class PluginService {
                     }
                 }
             } catch (e) {
-                // Ignore reading errors
+                console.error('[findPluginReferences] Error analyzing file:', uri.fsPath, e);
             }
         }
 
+        console.log('[findPluginReferences] Analysis complete. Total references found:', references.length);
         return references;
     }
 }

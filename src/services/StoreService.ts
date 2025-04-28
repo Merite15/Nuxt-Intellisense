@@ -5,29 +5,30 @@ import { TextUtils } from '../utils/textUtils';
 import type { NuxtComponentInfo } from '../types';
 
 export class StoreService {
-    constructor(private autoImportCache: Map<string, NuxtComponentInfo[]>) { }
+    constructor(private autoImportCache: Map<string, NuxtComponentInfo[]>) {
+        console.log('[StoreService] Initialized with autoImportCache size:', autoImportCache.size);
+    }
 
     async provideCodeLenses(document: vscode.TextDocument): Promise<vscode.CodeLens[]> {
+        console.log('[provideCodeLenses] Starting analysis for document:', document.uri.toString());
         const lenses: vscode.CodeLens[] = [];
         const text = document.getText();
 
-        const defineStoreRegex = /defineStore\s*\(\s*(['"`])(.*?)\1/g;
-
+        const defineStoreRegex = /defineStore\s*\(\s*(['\"`])(.*?)\1/g;
         let match: RegExpExecArray | null;
 
         while ((match = defineStoreRegex.exec(text))) {
             const storeName = match[2];
-
+            console.log('[provideCodeLenses] Found store definition:', storeName);
             const pos = document.positionAt(match.index);
-
             const range = new vscode.Range(pos.line, 0, pos.line, 0);
 
-            // Obtenir les références PRÉCISES
+            console.log('[provideCodeLenses] Searching references for store:', storeName);
             const preciseReferences = await this.findStoreReferences(storeName);
-
             const uniqueReferences = TextUtils.removeDuplicateReferences(preciseReferences);
-
             const referenceCount = uniqueReferences.length;
+
+            console.log('[provideCodeLenses] Found', referenceCount, 'unique references for store:', storeName);
 
             lenses.push(
                 new vscode.CodeLens(range, {
@@ -42,68 +43,75 @@ export class StoreService {
             );
         }
 
+        console.log('[provideCodeLenses] Returning', lenses.length, 'lenses');
         return lenses;
     }
 
     async findStoreReferences(storeName: string): Promise<vscode.Location[]> {
+        console.log('[findStoreReferences] Starting search for store:', storeName);
         try {
-            // Rechercher à la fois par le nom du hook et le nom du store dans defineStore
             const normalizedName = storeName
                 .split(/[-_\s]/)
                 .map(s => s.charAt(0).toUpperCase() + s.slice(1))
                 .join('');
 
             const storeHookName = `use${normalizedName}Store`;
-            // Support pour différentes variations de nommage du store
+            console.log('[findStoreReferences] Normalized hook name:', storeHookName);
+
             const possibleStoreIds = [
                 storeName,
                 storeName.replace(/-/g, ' '),
                 storeName.replace(/-/g, '_'),
-                // Gérer aussi le cas où storeName est au singulier mais défini au pluriel
                 `${storeName}s`,
                 `${storeName.replace(/-/g, ' ')}s`,
                 `${storeName.replace(/-/g, '_')}s`
             ];
+            console.log('[findStoreReferences] Generated possible store IDs:', possibleStoreIds);
 
             const uris = await vscode.workspace.findFiles(
                 '**/*.{vue,js,ts}',
                 '{**/node_modules/**,**/.nuxt/**,**/.output/**,**/dist/**}'
             );
+            console.log('[findStoreReferences] Found', uris.length, 'files to analyze');
 
             const results: vscode.Location[] = [];
-            const storeDefinitions: Map<string, string> = new Map(); // Pour stocker les id -> hookName
-            const storeDefinitionFiles: Set<string> = new Set(); // Pour stocker les chemins des fichiers de définition de store
+            const storeDefinitions: Map<string, string> = new Map();
+            const storeDefinitionFiles: Set<string> = new Set();
 
-            // Première passe: trouver toutes les définitions de store
+            console.log('[findStoreReferences] Starting first pass: finding store definitions');
             for (const uri of uris) {
-                if (FileUtils.shouldSkipFile(uri.fsPath)) continue;
+                if (FileUtils.shouldSkipFile(uri.fsPath)) {
+                    console.log('[findStoreReferences] Skipping file:', uri.fsPath);
+                    continue;
+                }
 
                 let content: string;
                 try {
                     content = fs.readFileSync(uri.fsPath, 'utf-8');
-                } catch {
+                } catch (e) {
+                    console.error('[findStoreReferences] Error reading file:', uri.fsPath, e);
                     continue;
                 }
 
-                // Chercher les définitions de store
                 const defineStoreRegex = /defineStore\s*\(\s*['"]([^'"]+)['"]/g;
                 let defineMatch;
 
                 while ((defineMatch = defineStoreRegex.exec(content)) !== null) {
                     const storeId = defineMatch[1];
+                    console.log('[findStoreReferences] Found store definition with ID:', storeId);
 
-                    // Vérifier si ce fichier définit un des stores que nous recherchons
                     if (possibleStoreIds.includes(storeId)) {
+                        console.log('[findStoreReferences] Matched store definition file:', uri.fsPath);
                         storeDefinitionFiles.add(uri.fsPath);
                     }
 
-                    // Trouver le nom du hook associé à cette définition
                     const hookNameRegex = /const\s+(\w+)\s*=\s*defineStore\s*\(\s*['"]([^'"]+)['"]/g;
-                    hookNameRegex.lastIndex = 0; // Réinitialiser l'index
+                    hookNameRegex.lastIndex = 0;
 
                     let hookMatch;
                     while ((hookMatch = hookNameRegex.exec(content)) !== null) {
                         if (hookMatch[2] === storeId) {
+                            console.log('[findStoreReferences] Found hook name for store:', storeId, '->', hookMatch[1]);
                             storeDefinitions.set(storeId, hookMatch[1]);
                             break;
                         }
@@ -111,64 +119,92 @@ export class StoreService {
                 }
             }
 
-            // Deuxième passe: chercher les références, mais exclure les fichiers de définition
-            for (const uri of uris) {
-                if (FileUtils.shouldSkipFile(uri.fsPath)) continue;
+            console.log('[findStoreReferences] Starting second pass: finding references');
+            console.log('[findStoreReferences] Store definition files:', Array.from(storeDefinitionFiles));
+            console.log('[findStoreReferences] Store definitions:', Object.fromEntries(storeDefinitions));
 
-                // Exclure les fichiers de définition du store
-                if (storeDefinitionFiles.has(uri.fsPath)) continue;
+            for (const uri of uris) {
+                if (FileUtils.shouldSkipFile(uri.fsPath)) {
+                    continue;
+                }
+
+                if (storeDefinitionFiles.has(uri.fsPath)) {
+                    console.log('[findStoreReferences] Skipping store definition file:', uri.fsPath);
+                    continue;
+                }
 
                 let content: string;
                 try {
                     content = fs.readFileSync(uri.fsPath, 'utf-8');
-                } catch {
+                } catch (e) {
+                    console.error('[findStoreReferences] Error reading file:', uri.fsPath, e);
                     continue;
                 }
 
-                // Chercher les usages du hook par nom conventionnel
-                const hookRegex = new RegExp(`\\b${storeHookName}\\b`, 'g');
-                TextUtils.findMatches(hookRegex, content, uri, results);
+                console.log('[findStoreReferences] Analyzing file for references:', uri.fsPath);
 
-                // Chercher aussi les usages par ID de store (pour la forme `const store = useStore('store-id')`)
+                const hookRegex = new RegExp(`\\b${storeHookName}\\b`, 'g');
+                const initialResultsCount = results.length;
+                TextUtils.findMatches(hookRegex, content, uri, results);
+                if (results.length > initialResultsCount) {
+                    console.log('[findStoreReferences] Found conventional hook usage in:', uri.fsPath);
+                }
+
                 for (const storeId of possibleStoreIds) {
                     const storeIdRegex = new RegExp(`useStore\\s*\\(\\s*['"]${storeId}['"]\\s*\\)`, 'g');
+                    const beforeStoreId = results.length;
                     TextUtils.findMatches(storeIdRegex, content, uri, results);
+                    if (results.length > beforeStoreId) {
+                        console.log('[findStoreReferences] Found store ID usage in:', uri.fsPath);
+                    }
 
-                    // Chercher les usages des hooks associés aux IDs trouvés dans la première passe
                     if (storeDefinitions.has(storeId)) {
                         const hookName = storeDefinitions.get(storeId);
                         const customHookRegex = new RegExp(`\\b${hookName}\\b`, 'g');
+                        const beforeCustomHook = results.length;
                         TextUtils.findMatches(customHookRegex, content, uri, results);
+                        if (results.length > beforeCustomHook) {
+                            console.log('[findStoreReferences] Found custom hook usage in:', uri.fsPath);
+                        }
                     }
                 }
             }
 
+            console.log('[findStoreReferences] Search complete. Found', results.length, 'total references');
             return results;
         } catch (e) {
-            console.error('Error:', e);
+            console.error('[findStoreReferences] Error during reference search:', e);
             return [];
         }
     }
 
     async scanStoresDirectory(dir: string): Promise<void> {
-        if (!fs.existsSync(dir)) return;
+        console.log('[scanStoresDirectory] Starting scan of directory:', dir);
+
+        if (!fs.existsSync(dir)) {
+            console.log('[scanStoresDirectory] Directory does not exist:', dir);
+            return;
+        }
 
         const storeInfos: NuxtComponentInfo[] = [];
 
+        console.log('[scanStoresDirectory] Searching for store files');
         const files = await vscode.workspace.findFiles(
             '**/*.{ts,js}',
             '{**/node_modules/**,**/.nuxt/**,**/.output/**,**/dist/**}'
         );
+        console.log('[scanStoresDirectory] Found', files.length, 'potential files');
 
         for (const file of files) {
             try {
+                console.log('[scanStoresDirectory] Analyzing file:', file.fsPath);
                 const content = fs.readFileSync(file.fsPath, 'utf-8');
 
-                const defineStoreRegex = /defineStore\s*\(\s*(['"`])(.*?)\1/g;
-
+                const defineStoreRegex = /defineStore\s*\(\s*(['\"`])(.*?)\1/g;
                 let match: RegExpExecArray | null;
 
                 while ((match = defineStoreRegex.exec(content))) {
+                    console.log('[scanStoresDirectory] Found store:', match[2], 'in file:', file.fsPath);
                     storeInfos.push({
                         name: match[2],
                         path: file.fsPath,
@@ -176,10 +212,11 @@ export class StoreService {
                     });
                 }
             } catch (e) {
-                console.error(`Error reading store file ${file.fsPath}:`, e);
+                console.error('[scanStoresDirectory] Error reading store file:', file.fsPath, e);
             }
         }
 
+        console.log('[scanStoresDirectory] Updating autoImportCache with', storeInfos.length, 'stores');
         this.autoImportCache.set('stores', storeInfos);
     }
 }

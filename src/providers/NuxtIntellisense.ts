@@ -57,9 +57,9 @@ export class NuxtIntellisense implements vscode.CodeLensProvider {
             return [];
         }
 
-        await this.updateAutoImportCacheIfNeeded();
-
         const fileInfo = this.getFileInfo(document);
+
+        await this.updateAutoImportCacheIfNeeded(fileInfo);
 
         // Déléguer aux services appropriés
         try {
@@ -176,34 +176,6 @@ export class NuxtIntellisense implements vscode.CodeLensProvider {
         };
     }
 
-    // private getFileInfo(document: vscode.TextDocument) {
-    //     const fileDir = path.dirname(document.fileName);
-    //     const fileExtension = path.extname(document.fileName);
-
-    //     const normalizedDir = fileDir.replace(/\\/g, '/');
-
-    //     const inFolder = (folder: string) =>
-    //         new RegExp(`(^|/)${folder}(/|$)`).test(normalizedDir);
-
-    //     return {
-    //         isVueFile: fileExtension === '.vue',
-    //         isComponent: inFolder('components'),
-    //         isComposable: inFolder('composables'),
-    //         isPlugin: inFolder('plugins'),
-    //         isMiddleware: inFolder('middleware'),
-    //         isLayout: inFolder('layouts'),
-    //         isStore: inFolder('stores') || inFolder('store'),
-    //         isUtil:
-    //             inFolder('utils') ||
-    //             inFolder('lib') ||
-    //             inFolder('services') ||
-    //             inFolder('types') ||
-    //             inFolder('helpers') ||
-    //             inFolder('constants') ||
-    //             inFolder('schemas')
-    //     };
-    // }
-
     private async findNuxtProjectRoot(uri: vscode.Uri): Promise<string | null> {
         let currentDir = path.dirname(uri.fsPath);
         const root = path.parse(currentDir).root;
@@ -227,48 +199,41 @@ export class NuxtIntellisense implements vscode.CodeLensProvider {
         return null;
     }
 
-    private async updateAutoImportCacheIfNeeded(): Promise<void> {
+    private async updateAutoImportCacheIfNeeded(fileInfo: any): Promise<void> {
         const now = Date.now();
 
         if (now - this.lastCacheUpdate < this.cacheUpdateInterval) {
             return;
         }
 
+        if (fileInfo.isComponent && this.componentService) {
+            const componentDirs = await FileUtils.findAllDirsByName(this.nuxtProjectRoot!, 'components');
+
+            for (const dir of componentDirs) {
+                await this.componentService.scanComponentsDirectory(dir);
+            }
+        }
+
+        if (fileInfo.isComposable && this.composableService) {
+            const composablesDirs = await FileUtils.findAllDirsByName(this.nuxtProjectRoot!, 'composables');
+
+            for (const dir of composablesDirs) {
+                await this.composableService.scanComposablesDirectory(dir);
+            }
+        }
+
+        if (fileInfo.isStore && this.storeService) {
+            const storeDirs = await FileUtils.findAllDirsByName(this.nuxtProjectRoot!, 'stores');
+
+            for (const dir of storeDirs) {
+                await this.storeService.scanStoresDirectory(dir);
+            }
+        }
+
+        if (fileInfo.isUtil && this.utilsService) {
+            await this.utilsService.scanUtilsDirectories();
+        }
+
         this.lastCacheUpdate = now;
-
-        await this.updateAutoImportCache();
-    }
-
-    private async updateAutoImportCache(): Promise<void> {
-        if (!this.nuxtProjectRoot) {
-            return;
-        }
-
-        // Réinitialiser le cache
-        this.autoImportCache.clear();
-
-        // Analyser les composants
-        const componentDirs = await FileUtils.findAllDirsByName(this.nuxtProjectRoot, 'components');
-
-        for (const dir of componentDirs) {
-            await this.componentService?.scanComponentsDirectory(dir);
-        }
-
-        // Analyser les composables
-        const composablesDirs = await FileUtils.findAllDirsByName(this.nuxtProjectRoot, 'composables');
-
-        for (const dir of composablesDirs) {
-            await this.composableService?.scanComposablesDirectory(dir);
-        }
-
-        // Analyser les stores
-        const storeDirs = await FileUtils.findAllDirsByName(this.nuxtProjectRoot, 'stores');
-
-        for (const dir of storeDirs) {
-            await this.storeService?.scanStoresDirectory(dir);
-        }
-
-        // Analyser les utilitaires et constantes
-        await this.utilsService?.scanUtilsDirectories();
     }
 }
