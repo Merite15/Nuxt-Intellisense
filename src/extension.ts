@@ -66,6 +66,3 @@ export function activate(context: vscode.ExtensionContext) {
 export function deactivate() {
   console.log('Extension "nuxt-intellisense" is now deactivated!');
 }
-
-// Exporter les types nécessaires
-export { NuxtComponentInfo } from './types';
