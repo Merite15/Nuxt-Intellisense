@@ -3,13 +3,34 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { TextUtils } from '../utils/textUtils';
 
-/**
- * @author Merite15
- * @created 2025-04-26 07:28:27
- */
+interface ReferenceCache {
+    references: vscode.Location[];
+    timestamp: number;
+}
+
 export class PluginService {
+    private referenceCache: Map<string, ReferenceCache> = new Map();
+    private referenceCacheTTL: number = 300000; // 5 minutes
+    private fileWatcher: vscode.FileSystemWatcher | undefined;
+
     constructor() {
         console.log('[PluginService] Service initialized');
+        this.setupFileWatcher();
+    }
+
+    private setupFileWatcher() {
+        this.fileWatcher = vscode.workspace.createFileSystemWatcher(
+            '**/*.{vue,js,ts}',
+            false, // Ne pas ignorer les créations
+            false, // Ne pas ignorer les changements
+            false  // Ne pas ignorer les suppressions
+        );
+
+        this.fileWatcher.onDidChange(() => this.invalidateReferenceCache());
+        this.fileWatcher.onDidCreate(() => this.invalidateReferenceCache());
+        this.fileWatcher.onDidDelete(() => this.invalidateReferenceCache());
+
+        vscode.Disposable.from(this.fileWatcher);
     }
 
     async provideCodeLenses(document: vscode.TextDocument): Promise<vscode.CodeLens[]> {
@@ -27,7 +48,10 @@ export class PluginService {
             const pluginName = path.basename(document.fileName, path.extname(document.fileName));
 
             console.log('[provideCodeLenses] Analyzing plugin:', pluginName);
-            const references = await this.findPluginReferences(pluginName);
+
+            // Use cache for references
+            const cacheKey = `${document.uri.toString()}:${pluginName}`;
+            const references = await this.getCachedReferences(cacheKey, pluginName);
             const referenceCount = references.length;
             console.log('[provideCodeLenses] Found', referenceCount, 'references for plugin:', pluginName);
 
@@ -46,6 +70,28 @@ export class PluginService {
 
         console.log('[provideCodeLenses] Returning', lenses.length, 'lenses');
         return lenses;
+    }
+
+    private async getCachedReferences(cacheKey: string, pluginName: string): Promise<vscode.Location[]> {
+        const now = Date.now();
+        const cachedData = this.referenceCache.get(cacheKey);
+
+        // Retourner les références en cache si elles sont encore valides
+        if (cachedData && (now - cachedData.timestamp < this.referenceCacheTTL)) {
+            console.log('[getCachedReferences] Using cached references for:', pluginName);
+            return cachedData.references;
+        }
+
+        // Sinon, rechercher les références et les stocker dans le cache
+        console.log('[getCachedReferences] Cache miss, finding references for:', pluginName);
+        const references = await this.findPluginReferences(pluginName);
+
+        this.referenceCache.set(cacheKey, {
+            references,
+            timestamp: now
+        });
+
+        return references;
     }
 
     async findPluginReferences(pluginName: string): Promise<vscode.Location[]> {
@@ -235,5 +281,16 @@ export class PluginService {
 
         console.log('[findPluginReferences] Analysis complete. Total references found:', references.length);
         return references;
+    }
+
+    public invalidateReferenceCache(): void {
+        console.log('[invalidateReferenceCache] Clearing reference cache');
+        this.referenceCache.clear();
+    }
+
+    public dispose(): void {
+        if (this.fileWatcher) {
+            this.fileWatcher.dispose();
+        }
     }
 }
