@@ -3,9 +3,37 @@ import * as fs from 'fs';
 import { TextUtils } from '../utils/textUtils';
 import path from 'path';
 
+interface ReferenceCache {
+    references: vscode.Location[];
+    timestamp: number;
+}
+
 export class MiddlewareService {
+    private referenceCache: Map<string, ReferenceCache> = new Map();
+    private referenceCacheTTL: number = 300000; // 5 minutes comme fallback
+    private fileWatcher: vscode.FileSystemWatcher | undefined;
+
     constructor() {
         console.log('[MiddlewareService] Service initialized');
+        this.setupFileWatcher();
+    }
+
+    private setupFileWatcher() {
+        // Surveiller les changements dans les fichiers Vue, TS et JS
+        this.fileWatcher = vscode.workspace.createFileSystemWatcher(
+            '**/*.{vue,ts,js}',
+            false, // Ne pas ignorer les créations
+            false, // Ne pas ignorer les changements
+            false  // Ne pas ignorer les suppressions
+        );
+
+        // Lors d'un changement de fichier, invalider le cache
+        this.fileWatcher.onDidChange(() => this.invalidateReferenceCache());
+        this.fileWatcher.onDidCreate(() => this.invalidateReferenceCache());
+        this.fileWatcher.onDidDelete(() => this.invalidateReferenceCache());
+
+        // S'assurer que le watcher est disposé lorsqu'il n'est plus nécessaire
+        vscode.Disposable.from(this.fileWatcher);
     }
 
     async provideCodeLenses(document: vscode.TextDocument): Promise<vscode.CodeLens[]> {
@@ -38,7 +66,10 @@ export class MiddlewareService {
                 );
             } else {
                 console.log('[provideCodeLenses] Searching references for middleware:', middlewareName);
-                const references = await this.findMiddlewareReferences(middlewareName);
+                const references = await this.getCachedReferences(
+                    `${document.uri.toString()}:${middlewareName}`,
+                    middlewareName,
+                );
                 const referenceCount = references.length;
                 console.log('[provideCodeLenses] Found', referenceCount, 'references');
 
@@ -235,4 +266,41 @@ export class MiddlewareService {
         }
         console.log('[findNuxtConfigReferences] Config file analysis complete');
     }
+
+    public invalidateReferenceCache(): void {
+        console.log('[invalidateReferenceCache] Clearing reference cache');
+        this.referenceCache.clear();
+    }
+
+    public dispose(): void {
+        if (this.fileWatcher) {
+            this.fileWatcher.dispose();
+        }
+    }
+
+    private async getCachedReferences(
+        cacheKey: string,
+        name: string,
+    ): Promise<vscode.Location[]> {
+        const now = Date.now();
+        const cachedData = this.referenceCache.get(cacheKey);
+
+        // Retourner les références en cache si elles sont toujours valides
+        if (cachedData && (now - cachedData.timestamp < this.referenceCacheTTL)) {
+            console.log('[getCachedReferences] Using cached references for:', name);
+            return cachedData.references;
+        }
+
+        // Sinon, trouver toutes les références et les mettre en cache
+        console.log('[getCachedReferences] Cache miss, finding references for:', name);
+        const references = await this.findMiddlewareReferences(name);
+
+        this.referenceCache.set(cacheKey, {
+            references,
+            timestamp: now
+        });
+
+        return references;
+    }
+
 }
