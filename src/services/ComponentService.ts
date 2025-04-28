@@ -8,24 +8,31 @@ export class ComponentService {
     constructor(
         private autoImportCache: Map<string, NuxtComponentInfo[]>,
         private nuxtProjectRoot: string
-    ) { }
+    ) {
+        console.log('[ComponentService] Initializing with nuxtProjectRoot:', nuxtProjectRoot);
+    }
 
     async provideCodeLenses(document: vscode.TextDocument): Promise<vscode.CodeLens[]> {
+        console.log('[provideCodeLenses] Starting for document:', document.fileName);
         const lenses: vscode.CodeLens[] = [];
 
         const fileName = path.basename(document.fileName);
+        console.log('[provideCodeLenses] Processing file:', fileName);
 
         if (fileName === 'app.vue' || fileName === 'error.vue') {
+            console.log('[provideCodeLenses] Skipping app.vue or error.vue file');
             return [];
         }
 
         const allComponentDirs = await this.findAllComponentsDirs();
+        console.log('[provideCodeLenses] Found component directories:', allComponentDirs);
 
         let nuxtComponentName = '';
 
         for (const dir of allComponentDirs) {
             if (document.uri.fsPath.startsWith(dir)) {
                 nuxtComponentName = this.getNuxtComponentName(document.uri.fsPath, dir);
+                console.log('[provideCodeLenses] Found component name:', nuxtComponentName);
                 break;
             }
         }
@@ -34,8 +41,10 @@ export class ComponentService {
 
         const isPagesComponents = document.fileName.includes(`${path.sep}pages${path.sep}`) &&
             document.fileName.includes(`${path.sep}components${path.sep}`);
+        console.log('[provideCodeLenses] isPagesComponents:', isPagesComponents);
 
         if (!isPagesComponents && document.fileName.includes(`${path.sep}layouts${path.sep}`)) {
+            console.log('[provideCodeLenses] Skipping layouts component');
             return [];
         }
 
@@ -43,17 +52,17 @@ export class ComponentService {
 
         // 2.1 Pour les composants avec <script setup>
         const scriptSetupRegex = /<script\s+[^>]*setup[^>]*>/g;
+        console.log('[provideCodeLenses] Searching for script setup');
 
         let match: RegExpExecArray | null;
 
-        // D'abord chercher le script setup
         while ((match = scriptSetupRegex.exec(text))) {
+            console.log('[provideCodeLenses] Found script setup at index:', match.index);
             const pos = document.positionAt(match.index);
-
             const range = new vscode.Range(pos.line, 0, pos.line, 0);
 
-            // Rechercher les références, y compris les auto-importations
             const references = await this.findComponentReferences(document);
+            console.log('[provideCodeLenses] Found references count:', references.length);
 
             const referenceCount = references.length;
 
@@ -71,16 +80,18 @@ export class ComponentService {
             hasAddedLens = true;
         }
 
-        // 2.2 Pour les composants avec defineComponent (seulement si pas de script setup trouvé)
+        // 2.2 Pour les composants avec defineComponent
         if (!hasAddedLens) {
+            console.log('[provideCodeLenses] Searching for defineComponent');
             const defineComponentRegex = /defineComponent\s*\(/g;
 
             while ((match = defineComponentRegex.exec(text))) {
+                console.log('[provideCodeLenses] Found defineComponent at index:', match.index);
                 const pos = document.positionAt(match.index);
                 const range = new vscode.Range(pos.line, 0, pos.line, 0);
 
-                // Rechercher les références, y compris les auto-importations
                 const references = await this.findComponentReferences(document);
+                console.log('[provideCodeLenses] Found references count:', references.length);
 
                 const referenceCount = references.length;
 
@@ -99,16 +110,18 @@ export class ComponentService {
             }
         }
 
-        // 2.3 Pour les composants Nuxt spécifiques (seulement si pas de script setup trouvé)
+        // 2.3 Pour les composants Nuxt spécifiques
         if (!hasAddedLens) {
+            console.log('[provideCodeLenses] Searching for defineNuxtComponent');
             const defineNuxtComponentRegex = /defineNuxtComponent\s*\(/g;
 
             while ((match = defineNuxtComponentRegex.exec(text))) {
+                console.log('[provideCodeLenses] Found defineNuxtComponent at index:', match.index);
                 const pos = document.positionAt(match.index);
                 const range = new vscode.Range(pos.line, 0, pos.line, 0);
 
-                // Rechercher les références, y compris les auto-importations
                 const references = await this.findComponentReferences(document);
+                console.log('[provideCodeLenses] Found references count:', references.length);
                 const referenceCount = references.length;
 
                 lenses.push(
@@ -128,16 +141,18 @@ export class ComponentService {
 
         // 2.4 Si aucune des méthodes ci-dessus n'a trouvé de balise, chercher la balise template
         if (!hasAddedLens) {
+            console.log('[provideCodeLenses] Searching for template tag');
             const templateRegex = /<template[^>]*>/g;
 
             match = templateRegex.exec(text);
 
             if (match) {
+                console.log('[provideCodeLenses] Found template tag at index:', match.index);
                 const pos = document.positionAt(match.index);
-
                 const range = new vscode.Range(pos.line, 0, pos.line, 0);
 
                 const references = await this.findComponentReferences(document);
+                console.log('[provideCodeLenses] Found references count:', references.length);
 
                 const referenceCount = references.length;
 
@@ -155,36 +170,42 @@ export class ComponentService {
             }
         }
 
+        console.log('[provideCodeLenses] Returning lenses count:', lenses.length);
         return lenses;
     }
 
     async findComponentReferences(document: vscode.TextDocument): Promise<vscode.Location[]> {
+        console.log('[findComponentReferences] Starting for document:', document.fileName);
         const allComponentDirs = await this.findAllComponentsDirs();
+        console.log('[findComponentReferences] Found component directories:', allComponentDirs);
 
         const filePath = document.uri.fsPath;
-
         let nuxtComponentName = '';
 
         for (const dir of allComponentDirs) {
             if (filePath.startsWith(dir)) {
                 nuxtComponentName = this.getNuxtComponentName(filePath, dir);
-
+                console.log('[findComponentReferences] Found component name:', nuxtComponentName);
                 break;
             }
         }
 
-        if (!nuxtComponentName) return [];
+        if (!nuxtComponentName) {
+            console.log('[findComponentReferences] No component name found, returning empty array');
+            return [];
+        }
 
-        // Version kebab-case du nom du composant
         const kebab = PathUtils.pascalToKebabCase(nuxtComponentName);
+        console.log('[findComponentReferences] Kebab case name:', kebab);
 
         const results: vscode.Location[] = [];
 
-        // Utiliser findFiles pour trouver tous les fichiers pertinents dans le workspace
         const uris = await vscode.workspace.findFiles(
-            '**/*.{vue,js,ts}',
-            '{**/node_modules/**,**/.nuxt/**,**/.output/**,**/dist/**}'
+            '**/*.vue',
+            '{**/node_modules/**,**/.nuxt/**,**/.output/**,**/dist/**,**/store/**,**/stores/**,**/utils/**,**/lib/**,**/helpers/**,**/constants/**,**/shared/**}'
         );
+
+        console.log('[findComponentReferences] Found files to search:', uris.length);
 
         for (const uri of uris) {
             if (path.basename(uri.fsPath) === 'app.vue' ||
@@ -195,31 +216,28 @@ export class ComponentService {
             let content: string;
             try {
                 content = fs.readFileSync(uri.fsPath, 'utf-8');
-            } catch {
+            } catch (error) {
+                console.log('[findComponentReferences] Error reading file:', uri.fsPath, error);
                 continue;
             }
 
-            // Recherche des balises ouvrantes avec potentiellement plusieurs lignes
             const searchPatterns = [
-                // Pour le format PascalCase
                 new RegExp(`<${nuxtComponentName}(\\s[\\s\\S]*?)?\\s*(/?)>`, 'gs'),
-                // Pour le format kebab-case
                 new RegExp(`<${kebab}(\\s[\\s\\S]*?)?\\s*(/?)>`, 'gs')
             ];
 
             for (const regex of searchPatterns) {
                 let match;
                 while ((match = regex.exec(content)) !== null) {
+                    console.log('[findComponentReferences] Found reference in file:', uri.fsPath);
                     const matchText = match[0];
                     const index = match.index;
 
-                    // Calculer la position à la main
                     const before = content.slice(0, index);
                     const line = before.split('\n').length - 1;
                     const lineStartIndex = before.lastIndexOf('\n') + 1;
                     const col = index - lineStartIndex;
 
-                    // Calculer la position de fin en tenant compte des sauts de ligne
                     const matchLines = matchText.split('\n');
                     const endLine = line + matchLines.length - 1;
                     const endCol = matchLines.length > 1
@@ -237,44 +255,121 @@ export class ComponentService {
             }
         }
 
+        console.log('[findComponentReferences] Total references found:', results.length);
         return results;
     }
 
+    // Fonction pour vérifier si un chemin doit être ignoré
+    private shouldIgnorePath(fullPath: string): boolean {
+        const baseIgnoredDirs = new Set([
+            // Dossiers système
+            'node_modules',
+            '.nuxt',
+            '.output',
+            'dist',
+            '.git',
+            '.github',
+            'public',
+            'config',
+
+            // Dossiers utilitaires
+            'utils',
+            'lib',
+            'helpers',
+            'constants',
+            'shared',
+
+            // Dossiers de stores
+            'store',
+            'stores',
+
+            // nuxt server
+            'server'
+        ]);
+
+        const pathSegments = fullPath.split(path.sep);
+
+        // Vérifier chaque segment du chemin
+        for (const segment of pathSegments) {
+            // Si un segment du chemin correspond à un dossier ignoré
+            if (baseIgnoredDirs.has(segment)) {
+                return true;
+            }
+
+            // Vérifier les patterns de layers (par exemple: admin/stores, client/utils, etc.)
+            if (segment.endsWith('/store') ||
+                segment.endsWith('/stores') ||
+                segment.endsWith('/utils') ||
+                segment.endsWith('/lib') ||
+                segment.endsWith('/helpers') ||
+                segment.endsWith('/constants') ||
+                segment.endsWith('/shared') ||
+                segment.endsWith('/public') ||
+                segment.endsWith('/config')) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     async findAllComponentsDirs(): Promise<string[]> {
+        console.log('[findAllComponentsDirs] Starting search in:', this.nuxtProjectRoot);
         const dirs: string[] = [];
 
-        if (!this.nuxtProjectRoot) return dirs;
+        if (!this.nuxtProjectRoot) {
+            console.log('[findAllComponentsDirs] No project root specified');
+            return dirs;
+        }
 
         const recurse = (dir: string) => {
-            const entries = fs.readdirSync(dir, { withFileTypes: true });
+            console.log('[findAllComponentsDirs] Searching directory:', dir);
 
-            for (const entry of entries) {
-                const fullPath = path.join(dir, entry.name);
+            try {
+                const entries = fs.readdirSync(dir, { withFileTypes: true });
 
-                if (entry.isDirectory()) {
-                    if (entry.name === 'components') {
-                        dirs.push(fullPath);
+                for (const entry of entries) {
+                    const fullPath = path.join(dir, entry.name);
+
+                    // Utiliser la nouvelle fonction de vérification
+                    if (this.shouldIgnorePath(fullPath)) {
+                        console.log('[findAllComponentsDirs] Skipping ignored path:', fullPath);
+                        continue;
                     }
-                    recurse(fullPath);
+
+                    if (entry.isDirectory()) {
+                        if (entry.name === 'components') {
+                            console.log('[findAllComponentsDirs] Found components directory:', fullPath);
+                            dirs.push(fullPath);
+                        }
+                        recurse(fullPath);
+                    }
                 }
+            } catch (error) {
+                console.error('[findAllComponentsDirs] Error reading directory:', dir, error);
             }
         };
 
         recurse(this.nuxtProjectRoot);
-
+        console.log('[findAllComponentsDirs] Found directories:', dirs);
         return dirs;
     }
 
     private getNuxtComponentName(filePath: string, componentsDir: string): string {
+        console.log('[getNuxtComponentName] Processing file:', filePath);
+        console.log('[getNuxtComponentName] Components directory:', componentsDir);
+
         let relPath = path.relative(componentsDir, filePath).replace(/\.vue$/, '');
+        console.log('[getNuxtComponentName] Relative path:', relPath);
 
         const parts = relPath.split(path.sep);
 
         if (parts[parts.length - 1].toLowerCase() === 'index') {
+            console.log('[getNuxtComponentName] Removing index from parts');
             parts.pop();
         }
 
-        return parts
+        const result = parts
             .filter(Boolean)
             .map(part =>
                 part
@@ -283,21 +378,31 @@ export class ComponentService {
                     .join('')
             )
             .join('');
+
+        console.log('[getNuxtComponentName] Generated component name:', result);
+        return result;
     }
 
     async scanComponentsDirectory(dir: string): Promise<void> {
+        console.log('[scanComponentsDirectory] Starting scan of directory:', dir);
+
         if (!fs.existsSync(dir)) {
+            console.log('[scanComponentsDirectory] Directory does not exist:', dir);
             return;
         }
 
         const componentInfos: NuxtComponentInfo[] = [];
 
-        const relativePattern = new vscode.RelativePattern(dir, '**/*.vue');
+        const files = await vscode.workspace.findFiles(
+            '**/*.vue',
+            '{**/node_modules/**,**/.nuxt/**,**/.output/**,**/dist/**,**/store/**,**/stores/**,**/utils/**,**/lib/**,**/helpers/**,**/constants/**,**/shared/**}'
+        );
 
-        const files = await vscode.workspace.findFiles(relativePattern);
+        console.log('[scanComponentsDirectory] Found files:', files.length);
 
         for (const file of files) {
             const componentName = path.basename(file.fsPath, '.vue');
+            console.log('[scanComponentsDirectory] Processing component:', componentName);
 
             componentInfos.push({
                 name: componentName,
@@ -306,6 +411,7 @@ export class ComponentService {
             });
         }
 
+        console.log('[scanComponentsDirectory] Total components found:', componentInfos.length);
         this.autoImportCache.set('components', componentInfos);
     }
 }

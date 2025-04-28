@@ -116,9 +116,10 @@ export class ComposableService {
 
         const composableInfos: NuxtComponentInfo[] = [];
 
-        const relativePattern = new vscode.RelativePattern(dir, '**/*.{ts,js}');
-
-        const files = await vscode.workspace.findFiles(relativePattern);
+        const files = await vscode.workspace.findFiles(
+            '**/*.{ts,js}',
+            '{**/node_modules/**,**/.nuxt/**,**/.output/**,**/dist/**}'
+        );
 
         for (const file of files) {
             try {
