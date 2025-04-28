@@ -19,6 +19,17 @@ export class ComponentService {
             return [];
         }
 
+        const allComponentDirs = await this.findAllComponentsDirs();
+
+        let nuxtComponentName = '';
+
+        for (const dir of allComponentDirs) {
+            if (document.uri.fsPath.startsWith(dir)) {
+                nuxtComponentName = this.getNuxtComponentName(document.uri.fsPath, dir);
+                break;
+            }
+        }
+
         const text = document.getText();
 
         const isPagesComponents = document.fileName.includes(`${path.sep}pages${path.sep}`) &&
@@ -48,7 +59,7 @@ export class ComponentService {
 
             lenses.push(
                 new vscode.CodeLens(range, {
-                    title: `🧩 ${referenceCount} reference${referenceCount > 1 ? 's' : ''}`,
+                    title: `🧩 ${referenceCount} reference${referenceCount > 1 ? 's' : ''} | ${nuxtComponentName}`,
                     command: 'editor.action.showReferences',
                     arguments: [
                         document.uri,
@@ -75,7 +86,7 @@ export class ComponentService {
 
                 lenses.push(
                     new vscode.CodeLens(range, {
-                        title: `🧩 ${referenceCount} reference${referenceCount > 1 ? 's' : ''}`,
+                        title: `🧩 ${referenceCount} reference${referenceCount > 1 ? 's' : ''} | ${nuxtComponentName}`,
                         command: 'editor.action.showReferences',
                         arguments: [
                             document.uri,
@@ -102,7 +113,7 @@ export class ComponentService {
 
                 lenses.push(
                     new vscode.CodeLens(range, {
-                        title: `⚡ ${referenceCount} reference${referenceCount > 1 ? 's' : ''}`,
+                        title: `⚡ ${referenceCount} reference${referenceCount > 1 ? 's' : ''} | ${nuxtComponentName}`,
                         command: 'editor.action.showReferences',
                         arguments: [
                             document.uri,
@@ -132,7 +143,7 @@ export class ComponentService {
 
                 lenses.push(
                     new vscode.CodeLens(range, {
-                        title: `🧩 ${referenceCount} reference${referenceCount > 1 ? 's' : ''}`,
+                        title: `🧩 ${referenceCount} reference${referenceCount > 1 ? 's' : ''} | ${nuxtComponentName}`,
                         command: 'editor.action.showReferences',
                         arguments: [
                             document.uri,
