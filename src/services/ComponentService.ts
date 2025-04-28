@@ -199,70 +199,121 @@ export class ComponentService {
         console.log('[findComponentReferences] Kebab case name:', kebab);
 
         const results: vscode.Location[] = [];
+        const uniqueRefKeys = new Set<string>();
 
         const uris = await vscode.workspace.findFiles(
             '**/*.vue',
-            '{**/node_modules/**,**/.nuxt/**,**/.output/**,**/dist/**,**/store/**,**/stores/**,**/utils/**,**/lib/**,**/helpers/**,**/constants/**,**/shared/**}'
+            '{**/node_modules/**,**/.nuxt/**,**/.output/**,**/dist/**}'
         );
 
         console.log('[findComponentReferences] Found files to search:', uris.length);
 
+        // Updated regex patterns with word boundaries to prevent partial matches
+        const searchPatterns = [
+            // Standard component usage with word boundaries
+            new RegExp(`<${nuxtComponentName}(\\s[^>]*)?\\s*(/?)>`, 'gs'),
+            new RegExp(`<${kebab}(\\s[^>]*)?\\s*(/?)>`, 'gs'),
+
+            // Self-closing components
+            new RegExp(`<${nuxtComponentName}\\s+([^>]*)/>`, 'gs'),
+            new RegExp(`<${kebab}\\s+([^>]*)/>`, 'gs'),
+
+            // Dynamic components - word boundaries for the component name
+            new RegExp(`<component\\s+:is="("|')?${nuxtComponentName}("|')?[^>]*>`, 'gs'),
+
+            // Components in resolveComponent - exact match required
+            new RegExp(`resolveComponent\\(['"]${nuxtComponentName}['"]\\)`, 'gs'),
+
+            // Import statements - with word boundaries
+            new RegExp(`import\\s+${nuxtComponentName}\\s+from`, 'gs'),
+            // For named imports with destructuring
+            new RegExp(`import\\s+\\{[^}]*\\b${nuxtComponentName}\\b[^}]*\\}\\s+from`, 'gs')
+        ];
+
         for (const uri of uris) {
-            if (path.basename(uri.fsPath) === 'app.vue' ||
-                path.basename(uri.fsPath) === 'error.vue') {
+            if (path.basename(uri.fsPath) === 'app.vue' || path.basename(uri.fsPath) === 'error.vue') {
                 continue;
             }
 
-            let content: string;
             try {
-                content = fs.readFileSync(uri.fsPath, 'utf-8');
+                const content = fs.readFileSync(uri.fsPath, 'utf-8');
+
+                for (const regex of searchPatterns) {
+                    let match;
+                    while ((match = regex.exec(content)) !== null) {
+                        const matchText = match[0];
+                        const index = match.index;
+
+                        // Additional check for imports to ensure exact name match
+                        if (matchText.includes('import')) {
+                            // For import statements, ensure we're matching the exact component name
+                            const importRegex = new RegExp(`\\b${nuxtComponentName}\\b`, 'g');
+                            if (!importRegex.test(matchText)) {
+                                continue; // Skip if not an exact match
+                            }
+                        }
+
+                        // Special handling for cases like QuillyEditor
+                        if (matchText.includes(nuxtComponentName)) {
+                            // Check if it's an isolated component name and not part of a longer name
+                            const beforeChar = content.charAt(index - 1);
+                            const afterChar = content.charAt(index + matchText.length);
+
+                            // Skip if the component name is part of a longer identifier
+                            const isPartOfLargerWord =
+                                (beforeChar && /[a-zA-Z0-9_]/.test(beforeChar)) ||
+                                (afterChar && /[a-zA-Z0-9_]/.test(afterChar));
+
+                            if (isPartOfLargerWord) {
+                                continue;
+                            }
+                        }
+
+                        const before = content.slice(0, index);
+                        const line = before.split('\n').length - 1;
+                        const lineStartIndex = before.lastIndexOf('\n') + 1;
+                        const col = index - lineStartIndex;
+
+                        // Create a unique key for this reference
+                        const refKey = `${uri.fsPath}-${line}-${col}`;
+
+                        // Skip if we've already found this reference
+                        if (uniqueRefKeys.has(refKey)) {
+                            continue;
+                        }
+
+                        uniqueRefKeys.add(refKey);
+                        console.log('[findComponentReferences] Found reference in file:', uri.fsPath);
+
+                        const matchLines = matchText.split('\n');
+                        const endLine = line + matchLines.length - 1;
+                        const endCol = matchLines.length > 1
+                            ? matchLines[matchLines.length - 1].length
+                            : col + matchText.length;
+
+                        results.push(new vscode.Location(
+                            uri,
+                            new vscode.Range(
+                                new vscode.Position(line, col),
+                                new vscode.Position(endLine, endCol)
+                            )
+                        ));
+                    }
+                }
             } catch (error) {
                 console.log('[findComponentReferences] Error reading file:', uri.fsPath, error);
                 continue;
             }
-
-            const searchPatterns = [
-                new RegExp(`<${nuxtComponentName}(\\s[\\s\\S]*?)?\\s*(/?)>`, 'gs'),
-                new RegExp(`<${kebab}(\\s[\\s\\S]*?)?\\s*(/?)>`, 'gs')
-            ];
-
-            for (const regex of searchPatterns) {
-                let match;
-                while ((match = regex.exec(content)) !== null) {
-                    console.log('[findComponentReferences] Found reference in file:', uri.fsPath);
-                    const matchText = match[0];
-                    const index = match.index;
-
-                    const before = content.slice(0, index);
-                    const line = before.split('\n').length - 1;
-                    const lineStartIndex = before.lastIndexOf('\n') + 1;
-                    const col = index - lineStartIndex;
-
-                    const matchLines = matchText.split('\n');
-                    const endLine = line + matchLines.length - 1;
-                    const endCol = matchLines.length > 1
-                        ? matchLines[matchLines.length - 1].length
-                        : col + matchText.length;
-
-                    results.push(new vscode.Location(
-                        uri,
-                        new vscode.Range(
-                            new vscode.Position(line, col),
-                            new vscode.Position(endLine, endCol)
-                        )
-                    ));
-                }
-            }
         }
 
-        console.log('[findComponentReferences] Total references found:', results.length);
+        console.log('[findComponentReferences] Total unique references found:', results.length);
         return results;
     }
 
     // Fonction pour vérifier si un chemin doit être ignoré
     private shouldIgnorePath(fullPath: string): boolean {
         const baseIgnoredDirs = new Set([
-            // Dossiers système
+            // Only include system and build directories here
             'node_modules',
             '.nuxt',
             '.output',
@@ -271,45 +322,20 @@ export class ComponentService {
             '.github',
             'public',
             'config',
-
-            // Dossiers utilitaires
-            'utils',
-            'lib',
-            'helpers',
-            'constants',
-            'shared',
-
-            // Dossiers de stores
-            'store',
-            'stores',
-
-            // nuxt server
             'server'
         ]);
 
         const pathSegments = fullPath.split(path.sep);
 
-        // Vérifier chaque segment du chemin
+        // Only check for exact matches to ignore directories
         for (const segment of pathSegments) {
-            // Si un segment du chemin correspond à un dossier ignoré
             if (baseIgnoredDirs.has(segment)) {
-                return true;
-            }
-
-            // Vérifier les patterns de layers (par exemple: admin/stores, client/utils, etc.)
-            if (segment.endsWith('/store') ||
-                segment.endsWith('/stores') ||
-                segment.endsWith('/utils') ||
-                segment.endsWith('/lib') ||
-                segment.endsWith('/helpers') ||
-                segment.endsWith('/constants') ||
-                segment.endsWith('/shared') ||
-                segment.endsWith('/public') ||
-                segment.endsWith('/config')) {
                 return true;
             }
         }
 
+        // Don't exclude stores, utils etc. when they are in application layers
+        // as they might contain component imports
         return false;
     }
 
@@ -321,6 +347,10 @@ export class ComponentService {
             console.log('[findAllComponentsDirs] No project root specified');
             return dirs;
         }
+
+        // Get the parent directory of the Nuxt project root to search all layers
+        const projectParent = path.dirname(this.nuxtProjectRoot);
+        console.log('[findAllComponentsDirs] Searching all layers in:', projectParent);
 
         const recurse = (dir: string) => {
             console.log('[findAllComponentsDirs] Searching directory:', dir);
@@ -350,7 +380,8 @@ export class ComponentService {
             }
         };
 
-        recurse(this.nuxtProjectRoot);
+        // Search in the entire project structure
+        recurse(projectParent);
         console.log('[findAllComponentsDirs] Found directories:', dirs);
         return dirs;
     }
