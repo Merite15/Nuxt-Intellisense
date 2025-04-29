@@ -14,7 +14,6 @@ export class MiddlewareService {
     private fileWatcher: vscode.FileSystemWatcher | undefined;
 
     constructor() {
-        console.log('[MiddlewareService] Service initialized');
         this.setupFileWatcher();
     }
 
@@ -37,27 +36,19 @@ export class MiddlewareService {
     }
 
     async provideCodeLenses(document: vscode.TextDocument): Promise<vscode.CodeLens[]> {
-        console.log('[provideCodeLenses] Starting analysis for document:', document.uri.toString());
         const lenses: vscode.CodeLens[] = [];
         const text = document.getText();
         const defineNuxtMiddlewareRegex = /defineNuxtRouteMiddleware\s*\(/g;
         let match: RegExpExecArray | null;
 
         while ((match = defineNuxtMiddlewareRegex.exec(text))) {
-            console.log('[provideCodeLenses] Found middleware definition at position:', match.index);
             const pos = document.positionAt(match.index);
             const range = new vscode.Range(pos.line, 0, pos.line, 0);
             const middlewareName = path.basename(document.fileName, path.extname(document.fileName));
             const isGlobal = document.fileName.includes('.global.');
 
-            console.log('[provideCodeLenses] Middleware details:', {
-                name: middlewareName,
-                isGlobal,
-                position: pos.line
-            });
 
             if (isGlobal) {
-                console.log('[provideCodeLenses] Adding global middleware lens');
                 lenses.push(
                     new vscode.CodeLens(range, {
                         title: `🌍 Global Middleware`,
@@ -65,13 +56,11 @@ export class MiddlewareService {
                     })
                 );
             } else {
-                console.log('[provideCodeLenses] Searching references for middleware:', middlewareName);
                 const references = await this.getCachedReferences(
                     `${document.uri.toString()}:${middlewareName}`,
                     middlewareName,
                 );
                 const referenceCount = references.length;
-                console.log('[provideCodeLenses] Found', referenceCount, 'references');
 
                 lenses.push(
                     new vscode.CodeLens(range, {
@@ -85,35 +74,26 @@ export class MiddlewareService {
             }
         }
 
-        console.log('[provideCodeLenses] Returning', lenses.length, 'lenses');
         return lenses;
     }
 
     async findMiddlewareReferences(middlewareName: string): Promise<vscode.Location[]> {
-        console.log('[findMiddlewareReferences] Starting search for middleware:', middlewareName);
         const results: vscode.Location[] = [];
 
-        console.log('[findMiddlewareReferences] Searching Vue files');
         await this.findVueFileReferences(middlewareName, results);
-        console.log('[findMiddlewareReferences] Vue file search complete, found:', results.length, 'references');
 
-        console.log('[findMiddlewareReferences] Searching Nuxt config files');
         await this.findNuxtConfigReferences(middlewareName, results);
-        console.log('[findMiddlewareReferences] Config file search complete, total references:', results.length);
 
         return results;
     }
 
     private async findVueFileReferences(middlewareName: string, results: vscode.Location[]): Promise<void> {
-        console.log('[findVueFileReferences] Starting Vue file analysis for:', middlewareName);
         const uris = await vscode.workspace.findFiles(
             '**/pages/**/*.vue',
             '{**/node_modules/**,**/.nuxt/**,**/.output/**,**/dist/**,, **/utils/**,**/lib/**,**/helpers/**,**/constants/**,**/shared/**, **/public/**,**/config/**, **/assets/**,**/store/**,**/stores/**}'
         );
-        console.log('[findVueFileReferences] Found', uris.length, 'Vue files to analyze');
 
         for (const uri of uris) {
-            console.log('[findVueFileReferences] Analyzing file:', uri.fsPath);
             let content: string;
             try {
                 content = fs.readFileSync(uri.fsPath, 'utf-8');
@@ -126,8 +106,8 @@ export class MiddlewareService {
             let metaMatch;
 
             while ((metaMatch = definePageMetaRegex.exec(content)) !== null) {
-                console.log('[findVueFileReferences] Found definePageMeta at position:', metaMatch.index);
                 const metaContent = metaMatch[0];
+
                 const metaStartIndex = metaMatch.index;
 
                 // Recherche middleware unique
@@ -135,7 +115,6 @@ export class MiddlewareService {
                 let singleMatch;
 
                 while ((singleMatch = singleMiddlewareRegex.exec(metaContent)) !== null) {
-                    console.log('[findVueFileReferences] Found single middleware reference');
                     const middlewareValueIndex = metaContent.indexOf(singleMatch[1] + middlewareName + singleMatch[1], singleMatch.index);
                     const exactIndex = metaStartIndex + middlewareValueIndex + 1;
 
@@ -156,13 +135,11 @@ export class MiddlewareService {
                 let arrayMatch;
 
                 while ((arrayMatch = arrayMiddlewareRegex.exec(metaContent)) !== null) {
-                    console.log('[findVueFileReferences] Found middleware array');
                     const arrayContent = arrayMatch[1];
                     const itemRegex = new RegExp(`(['"\`])(${middlewareName})\\1`, 'g');
                     let itemMatch;
 
                     while ((itemMatch = itemRegex.exec(arrayContent)) !== null) {
-                        console.log('[findVueFileReferences] Found middleware in array');
                         const arrayStartIndex = metaContent.indexOf(arrayContent, arrayMatch.index);
                         const middlewareInArrayIndex = arrayContent.indexOf(itemMatch[0]);
                         const exactIndex = metaStartIndex + arrayStartIndex + middlewareInArrayIndex + 1;
@@ -181,19 +158,15 @@ export class MiddlewareService {
                 }
             }
         }
-        console.log('[findVueFileReferences] Vue file analysis complete');
     }
 
     private async findNuxtConfigReferences(middlewareName: string, results: vscode.Location[]): Promise<void> {
-        console.log('[findNuxtConfigReferences] Starting config file analysis for:', middlewareName);
         const configFiles = await vscode.workspace.findFiles(
             '**/nuxt.config.{js,ts}',
             '{**/node_modules/**,**/.nuxt/**,**/.output/**,**/dist/**,, **/utils/**,**/lib/**,**/helpers/**,**/constants/**,**/shared/**, **/public/**,**/config/**, **/assets/**,**/store/**,**/stores/**}'
         );
-        console.log('[findNuxtConfigReferences] Found', configFiles.length, 'config files to analyze');
 
         for (const uri of configFiles) {
-            console.log('[findNuxtConfigReferences] Analyzing config file:', uri.fsPath);
             try {
                 const content = fs.readFileSync(uri.fsPath, 'utf-8');
 
@@ -202,10 +175,9 @@ export class MiddlewareService {
                 let singleMatch;
 
                 while ((singleMatch = singleMiddlewareRegex.exec(content)) !== null) {
-                    console.log('[findNuxtConfigReferences] Found potential single middleware reference');
                     const previousContent = content.substring(0, singleMatch.index);
+
                     if (previousContent.lastIndexOf('pages:extend') !== -1) {
-                        console.log('[findNuxtConfigReferences] Confirmed middleware in pages:extend context');
                         const middlewareValueIndex = content.indexOf(singleMatch[1] + middlewareName + singleMatch[1], singleMatch.index);
                         const exactIndex = middlewareValueIndex + 1;
 
@@ -227,20 +199,17 @@ export class MiddlewareService {
                 let pagesExtendMatch;
 
                 while ((pagesExtendMatch = pagesExtendRegex.exec(content)) !== null) {
-                    console.log('[findNuxtConfigReferences] Found pages:extend hook');
                     const hookContent = pagesExtendMatch[0];
 
                     const arrayMiddlewareRegex = /middleware\s*:\s*\[([^\]]*)\]/g;
                     let arrayMatch;
 
                     while ((arrayMatch = arrayMiddlewareRegex.exec(hookContent)) !== null) {
-                        console.log('[findNuxtConfigReferences] Found middleware array in hook');
                         const arrayContent = arrayMatch[1];
                         const itemRegex = new RegExp(`(['"\`])(${middlewareName})\\1`, 'g');
                         let itemMatch;
 
                         while ((itemMatch = itemRegex.exec(arrayContent)) !== null) {
-                            console.log('[findNuxtConfigReferences] Found middleware in array');
                             const hookStartIndex = pagesExtendMatch.index;
                             const arrayStartIndex = hookContent.indexOf(arrayContent, arrayMatch.index);
                             const middlewareInArrayIndex = arrayContent.indexOf(itemMatch[0]);
@@ -264,11 +233,9 @@ export class MiddlewareService {
                 continue;
             }
         }
-        console.log('[findNuxtConfigReferences] Config file analysis complete');
     }
 
     public invalidateReferenceCache(): void {
-        console.log('[invalidateReferenceCache] Clearing reference cache');
         this.referenceCache.clear();
     }
 
@@ -287,12 +254,10 @@ export class MiddlewareService {
 
         // Retourner les références en cache si elles sont toujours valides
         if (cachedData && (now - cachedData.timestamp < this.referenceCacheTTL)) {
-            console.log('[getCachedReferences] Using cached references for:', name);
             return cachedData.references;
         }
 
         // Sinon, trouver toutes les références et les mettre en cache
-        console.log('[getCachedReferences] Cache miss, finding references for:', name);
         const references = await this.findMiddlewareReferences(name);
 
         this.referenceCache.set(cacheKey, {
