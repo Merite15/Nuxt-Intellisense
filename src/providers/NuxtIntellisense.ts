@@ -179,125 +179,34 @@ export class NuxtIntellisense implements vscode.CodeLensProvider {
     private async findNuxtProjectRoot(uri: vscode.Uri): Promise<string | null> {
         let currentDir = path.dirname(uri.fsPath);
         const root = path.parse(currentDir).root;
-
-        // Pour le debugging
-        console.log(`[NuxtIntellisense] Recherche du projet Nuxt en partant de: ${currentDir}`);
-
-        // Variables pour stocker les résultats intermédiaires
-        let firstNuxtConfigFound: string | null = null;
-        let potentialRootWithPackageJson: string | null = null;
+        let bestCandidate: string | null = null;
 
         while (currentDir !== root) {
-            const nuxtConfigPath = path.join(currentDir, 'nuxt.config.ts');
+            const nuxtConfigTsPath = path.join(currentDir, 'nuxt.config.ts');
             const nuxtConfigJsPath = path.join(currentDir, 'nuxt.config.js');
-            const packageJsonPath = path.join(currentDir, 'package.json');
 
-            try {
-                // Vérifier si un nuxt.config existe
-                const hasNuxtConfig = fs.existsSync(nuxtConfigPath) || fs.existsSync(nuxtConfigJsPath);
+            const hasNuxtConfig = fs.existsSync(nuxtConfigTsPath) || fs.existsSync(nuxtConfigJsPath);
+            const hasPackageJson = fs.existsSync(path.join(currentDir, 'package.json'));
+            const hasGit = fs.existsSync(path.join(currentDir, '.git'));
+            const hasPnpmWorkspace = fs.existsSync(path.join(currentDir, 'pnpm-workspace.yaml'));
 
-                // Stocker le premier nuxt.config trouvé
-                if (hasNuxtConfig && !firstNuxtConfigFound) {
-                    firstNuxtConfigFound = currentDir;
-                    console.log(`[NuxtIntellisense] Premier nuxt.config trouvé dans: ${currentDir}`);
+            if (hasNuxtConfig) {
+                // On marque ce dossier comme un candidat potentiel
+                if (hasPackageJson || hasGit || hasPnpmWorkspace) {
+                    return currentDir; // Racine trouvée avec certitude
                 }
 
-                // Vérifier si ce répertoire contient un package.json
-                if (fs.existsSync(packageJsonPath)) {
-                    try {
-                        const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'));
-
-                        // Si le package.json contient nuxt comme dépendance, c'est un bon candidat
-                        if (packageJson.dependencies &&
-                            (packageJson.dependencies.nuxt ||
-                                packageJson.dependencies['nuxt3'] ||
-                                packageJson.devDependencies?.nuxt ||
-                                packageJson.devDependencies?.['nuxt3'])) {
-
-                            potentialRootWithPackageJson = currentDir;
-                            console.log(`[NuxtIntellisense] package.json avec Nuxt trouvé dans: ${currentDir}`);
-
-                            // Si ce répertoire contient aussi un nuxt.config ET des layers ou extends
-                            if (hasNuxtConfig) {
-                                const configPath = fs.existsSync(nuxtConfigPath) ? nuxtConfigPath : nuxtConfigJsPath;
-                                const configContent = fs.readFileSync(configPath, 'utf8');
-
-                                // Vérifier si ce nuxt.config contient des extensions ou layers
-                                if (configContent.includes('extends:') ||
-                                    configContent.includes('layers:') ||
-                                    configContent.includes('modules:')) {
-
-                                    console.log(`[NuxtIntellisense] Racine principale de projet Nuxt détectée avec extensions dans: ${currentDir}`);
-                                    return currentDir; // C'est probablement la racine principale
-                                }
-                            }
-                        }
-                    } catch (parseError) {
-                        // Ignorer les erreurs de parsing du package.json
-                    }
-                }
-
-                // Vérifier la structure pour voir si c'est la racine principale
-                // Chercher des indices d'une racine principale comme:
-                // - présence d'un dossier "layers" ou "app"
-                // - présence de plusieurs sous-dossiers ayant chacun un nuxt.config
-                const layersDirPath = path.join(currentDir, 'layers');
-                const appDirPath = path.join(currentDir, 'app');
-
-                if (fs.existsSync(layersDirPath) && fs.statSync(layersDirPath).isDirectory()) {
-                    console.log(`[NuxtIntellisense] Structure de layers détectée dans: ${currentDir}`);
-                    return currentDir;
-                }
-
-                // Vérifier si le dossier app contient plusieurs sous-dossiers avec nuxt.config
-                if (fs.existsSync(appDirPath) && fs.statSync(appDirPath).isDirectory()) {
-                    const appSubDirs = fs.readdirSync(appDirPath);
-
-                    let nuxtConfigSubDirsCount = 0;
-
-                    for (const subdir of appSubDirs) {
-                        const fullSubdirPath = path.join(appDirPath, subdir);
-                        if (fs.statSync(fullSubdirPath).isDirectory()) {
-                            const hasNuxtConfigInSubdir =
-                                fs.existsSync(path.join(fullSubdirPath, 'nuxt.config.ts')) ||
-                                fs.existsSync(path.join(fullSubdirPath, 'nuxt.config.js'));
-
-                            if (hasNuxtConfigInSubdir) {
-                                nuxtConfigSubDirsCount++;
-                            }
-                        }
-                    }
-
-                    if (nuxtConfigSubDirsCount > 1) {
-                        console.log(`[NuxtIntellisense] Structure multi-layer détectée avec ${nuxtConfigSubDirsCount} layers dans: ${currentDir}`);
-                        return currentDir;
-                    }
-                }
-            } catch (e) {
-                console.error(`[NuxtIntellisense] Erreur lors de la vérification du répertoire ${currentDir}:`, e);
+                // Sinon on garde en mémoire comme fallback
+                bestCandidate = currentDir;
             }
 
             currentDir = path.dirname(currentDir);
         }
 
-        // Si nous n'avons pas trouvé de racine principale évidente,
-        // on retourne par ordre de priorité:
-
-        // 1. Le répertoire avec package.json contenant nuxt
-        if (potentialRootWithPackageJson) {
-            console.log(`[NuxtIntellisense] Utilisation du répertoire avec package.json comme racine: ${potentialRootWithPackageJson}`);
-            return potentialRootWithPackageJson;
-        }
-
-        // 2. Le premier nuxt.config trouvé
-        if (firstNuxtConfigFound) {
-            console.log(`[NuxtIntellisense] Utilisation du premier nuxt.config trouvé comme racine: ${firstNuxtConfigFound}`);
-            return firstNuxtConfigFound;
-        }
-
-        console.log(`[NuxtIntellisense] Aucune racine de projet Nuxt trouvée`);
-        return null;
+        // Si aucun dossier avec git/package.json mais un layer avec nuxt.config trouvé
+        return bestCandidate;
     }
+
 
     private async updateAutoImportCacheIfNeeded(fileInfo: any): Promise<void> {
         const now = Date.now();
