@@ -202,7 +202,7 @@ export class ComponentService {
 
         const uris = await vscode.workspace.findFiles(
             '**/*.vue',
-            '{**/node_modules/**,**/.nuxt/**,**/.output/**,**/dist/**,**/store/**,**/stores/**,**/utils/**,**/lib/**,**/helpers/**,**/constants/**,**/shared/**}'
+            '{**/node_modules/**,**/.nuxt/**,**/.output/**,**/dist/**,**/utils/**,**/lib/**,**/helpers/**,**/constants/**,**/shared/**, **/public/**,**/config/**, **/assets/**}'
         );
 
         console.log('[findComponentReferences] Found files to search:', uris.length);
@@ -282,6 +282,8 @@ export class ComponentService {
             // Dossiers de stores
             'store',
             'stores',
+
+            'assets',
 
             // nuxt server
             'server'
@@ -395,7 +397,7 @@ export class ComponentService {
 
         const files = await vscode.workspace.findFiles(
             '**/*.vue',
-            '{**/node_modules/**,**/.nuxt/**,**/.output/**,**/dist/**,**/store/**,**/stores/**,**/utils/**,**/lib/**,**/helpers/**,**/constants/**,**/shared/**}'
+            '{**/node_modules/**,**/.nuxt/**,**/.output/**,**/dist/**,**/utils/**,**/lib/**,**/helpers/**,**/constants/**,**/shared/**, **/public/**,**/config/**, **/assets/**}',
         );
 
         console.log('[scanComponentsDirectory] Found files:', files.length);

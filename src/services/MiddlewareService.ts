@@ -108,7 +108,7 @@ export class MiddlewareService {
         console.log('[findVueFileReferences] Starting Vue file analysis for:', middlewareName);
         const uris = await vscode.workspace.findFiles(
             '**/pages/**/*.vue',
-            '{**/node_modules/**,**/.nuxt/**,**/.output/**,**/dist/**}'
+            '{**/node_modules/**,**/.nuxt/**,**/.output/**,**/dist/**,, **/utils/**,**/lib/**,**/helpers/**,**/constants/**,**/shared/**, **/public/**,**/config/**, **/assets/**,**/store/**,**/stores/**}'
         );
         console.log('[findVueFileReferences] Found', uris.length, 'Vue files to analyze');
 
@@ -188,7 +188,7 @@ export class MiddlewareService {
         console.log('[findNuxtConfigReferences] Starting config file analysis for:', middlewareName);
         const configFiles = await vscode.workspace.findFiles(
             '**/nuxt.config.{js,ts}',
-            '{**/node_modules/**,**/.nuxt/**,**/.output/**,**/dist/**}'
+            '{**/node_modules/**,**/.nuxt/**,**/.output/**,**/dist/**,, **/utils/**,**/lib/**,**/helpers/**,**/constants/**,**/shared/**, **/public/**,**/config/**, **/assets/**,**/store/**,**/stores/**}'
         );
         console.log('[findNuxtConfigReferences] Found', configFiles.length, 'config files to analyze');
 

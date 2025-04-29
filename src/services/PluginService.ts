@@ -102,7 +102,7 @@ export class PluginService {
         console.log('[findPluginReferences] Searching for plugin file');
         const pluginUris = await vscode.workspace.findFiles(
             `**/plugins/${pluginName}.{js,ts}`,
-            '{**/node_modules/**,**/.nuxt/**,**/.output/**,**/dist/**}'
+            '{**/node_modules/**,**/.nuxt/**,**/.output/**,**/dist/**,, **/utils/**,**/lib/**,**/helpers/**,**/constants/**,**/shared/**, **/public/**,**/config/**, **/assets/**,**/store/**,**/stores/**}'
         );
 
         if (pluginUris.length === 0) {
@@ -175,9 +175,10 @@ export class PluginService {
         }
 
         console.log('[findPluginReferences] Searching for usage in project files');
+
         const allFileUris = await vscode.workspace.findFiles(
             '**/*.{vue,js,ts}',
-            '**/node_modules/**'
+            '{**/node_modules/**,**/.nuxt/**,**/.output/**,**/dist/**,, **/utils/**,**/lib/**,**/helpers/**,**/constants/**,**/shared/**, **/public/**,**/config/**, **/assets/**,**/store/**,**/stores/**}'
         );
         console.log('[findPluginReferences] Found', allFileUris.length, 'files to analyze');
 

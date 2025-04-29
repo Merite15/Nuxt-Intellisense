@@ -152,7 +152,7 @@ export class LayoutService {
         console.log('[findLayoutReferences] Searching Nuxt config files');
         const configFiles = await vscode.workspace.findFiles(
             '**/nuxt.config.{js,ts}',
-            '{**/node_modules/**,**/.nuxt/**,**/.output/**,**/dist/**}'
+            '{**/node_modules/**,**/.nuxt/**,**/.output/**,**/dist/**,**/utils/**,**/lib/**,**/helpers/**,**/constants/**,**/shared/**, **/public/**,**/config/**, **/assets/**,**/store/**,**/stores/**}'
         );
         console.log('[findLayoutReferences] Found', configFiles.length, 'config files to analyze');
 

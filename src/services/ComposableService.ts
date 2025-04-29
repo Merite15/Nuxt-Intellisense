@@ -132,7 +132,7 @@ export class ComposableService {
                 console.log('[findAllReferences] Searching for additional files');
                 const uris = await vscode.workspace.findFiles(
                     '**/*.{vue,js,ts}',
-                    '{**/node_modules/**,**/.nuxt/**,**/.output/**,**/dist/**}'
+                    '{**/node_modules/**,**/.nuxt/**,**/.output/**,**/dist/**, **/utils/**,**/lib/**,**/helpers/**,**/constants/**,**/shared/**, **/public/**,**/config/**, **/assets/**}'
                 );
                 console.log('[findAllReferences] Found files to analyze:', uris.length);
 
@@ -197,7 +197,7 @@ export class ComposableService {
 
         const files = await vscode.workspace.findFiles(
             path.join(dir, '**/*.{ts,js}').replace(/\\/g, '/'),
-            '{**/node_modules/**,**/.nuxt/**,**/.output/**,**/dist/**}'
+            '{**/node_modules/**,**/.nuxt/**,**/.output/**,**/dist/**, **/utils/**,**/lib/**,**/helpers/**,**/constants/**,**/shared/**, **/public/**,**/config/**, **/assets/**}'
         );
 
         console.log('[scanComposablesDirectory] Found files:', files.length);

@@ -118,7 +118,7 @@ export class StoreService {
 
             const uris = await vscode.workspace.findFiles(
                 '**/*.{vue,js,ts}',
-                '{**/node_modules/**,**/.nuxt/**,**/.output/**,**/dist/**,**/utils/**,**/shared/**,**/constants/**}'
+                '{**/node_modules/**,**/.nuxt/**,**/.output/**,**/dist/**,, **/utils/**,**/lib/**,**/helpers/**,**/constants/**,**/shared/**, **/public/**,**/config/**, **/assets/**}'
             );
 
             console.log('[findStoreReferences] Found', uris.length, 'files to analyze');
@@ -210,8 +210,9 @@ export class StoreService {
 
         const files = await vscode.workspace.findFiles(
             '**/*.{ts,js}',
-            '{**/node_modules/**,**/.nuxt/**,**/.output/**,**/dist/**}'
+            '{**/node_modules/**,**/.nuxt/**,**/.output/**,**/dist/**,, **/utils/**,**/lib/**,**/helpers/**,**/constants/**,**/shared/**, **/public/**,**/config/**, **/assets/**}'
         );
+
         console.log('[scanStoresDirectory] Found', files.length, 'potential files');
 
         for (const file of files) {
