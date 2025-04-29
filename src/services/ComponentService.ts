@@ -9,40 +9,95 @@ interface ReferenceCache {
     timestamp: number;
 }
 
+interface ComponentDirsCache {
+    dirs: string[];
+    timestamp: number;
+}
+
 export class ComponentService {
     private referenceCache: Map<string, ReferenceCache> = new Map();
-    private referenceCacheTTL: number = 300000; // 5 minutes comme fallback
+    private componentDirsCache: ComponentDirsCache | null = null;
+    private componentNameCache: Map<string, string> = new Map(); // Cache pour les noms de composants par chemin
+    private referenceCacheTTL: number = 300000; // 5 minutes
+    private dirsCacheTTL: number = 600000; // 10 minutes
     private fileWatcher: vscode.FileSystemWatcher | undefined;
+    private initialized: boolean = false;
 
     constructor(
         private autoImportCache: Map<string, NuxtComponentInfo[]>,
         private nuxtProjectRoot: string
     ) {
         console.log('[ComponentService] Initializing with nuxtProjectRoot:', nuxtProjectRoot);
+    }
 
-        // Mettre en place un watcher pour les fichiers pertinents
+    /**
+     * Initialise le service de composants une seule fois
+     */
+    public async initialize(): Promise<void> {
+        if (this.initialized) {
+            return;
+        }
+
+        console.log('[ComponentService] Running initialization tasks');
+
+        // Précharger les répertoires de composants (coûteux)
+        await this.getCachedComponentDirs();
+
+        // Mettre en place un watcher ciblé pour les fichiers Vue
         this.setupFileWatcher();
+
+        this.initialized = true;
     }
 
     private setupFileWatcher() {
-        // Surveiller les changements dans les fichiers Vue
+        // Surveiller uniquement les fichiers Vue dans les répertoires de composants
         this.fileWatcher = vscode.workspace.createFileSystemWatcher(
-            '**/*.vue',
+            '**/components/**/*.vue',
             false, // Ne pas ignorer les créations
             false, // Ne pas ignorer les changements
             false  // Ne pas ignorer les suppressions
         );
 
-        // Lors d'un changement de fichier, invalider le cache
-        this.fileWatcher.onDidChange(() => this.invalidateReferenceCache());
-        this.fileWatcher.onDidCreate(() => this.invalidateReferenceCache());
-        this.fileWatcher.onDidDelete(() => this.invalidateReferenceCache());
+        // Lors d'un changement de fichier, invalider seulement le cache spécifique
+        this.fileWatcher.onDidChange(uri => this.invalidateSpecificCache(uri.fsPath));
+        this.fileWatcher.onDidCreate(uri => this.invalidateSpecificCache(uri.fsPath));
+        this.fileWatcher.onDidDelete(uri => this.invalidateSpecificCache(uri.fsPath));
 
         // S'assurer que le watcher est disposé lorsqu'il n'est plus nécessaire
         vscode.Disposable.from(this.fileWatcher);
     }
 
+    /**
+     * Invalide seulement les entrées de cache liées à un fichier spécifique
+     */
+    private invalidateSpecificCache(filePath: string): void {
+        console.log('[invalidateSpecificCache] Invalidating cache for file:', filePath);
+
+        // Si le fichier est un composant, invalider son propre cache
+        const nuxtComponentName = this.getCachedComponentName(filePath);
+        if (nuxtComponentName) {
+            // Supprimer toutes les entrées de cache qui contiennent ce nom de composant
+            const keysToRemove: string[] = [];
+            for (const cacheKey of this.referenceCache.keys()) {
+                if (cacheKey.includes(nuxtComponentName)) {
+                    keysToRemove.push(cacheKey);
+                }
+            }
+
+            keysToRemove.forEach(key => {
+                console.log('[invalidateSpecificCache] Removing cache entry:', key);
+                this.referenceCache.delete(key);
+            });
+        }
+
+        // Pour un fichier quelconque, on doit invalider les références qui peuvent l'utiliser
+        // Mais nous conservons cette logique simple pour l'instant
+    }
+
     async provideCodeLenses(document: vscode.TextDocument): Promise<vscode.CodeLens[]> {
+        // S'assurer que l'initialisation est faite
+        await this.initialize();
+
         console.log('[provideCodeLenses] Starting for document:', document.fileName);
         const lenses: vscode.CodeLens[] = [];
 
@@ -54,17 +109,26 @@ export class ComponentService {
             return [];
         }
 
-        const allComponentDirs = await this.findAllComponentsDirs();
-        console.log('[provideCodeLenses] Found component directories:', allComponentDirs);
+        // Utiliser la version mise en cache des répertoires
+        const allComponentDirs = await this.getCachedComponentDirs();
 
-        let nuxtComponentName = '';
+        // Obtenir le nom du composant Nuxt à partir du cache
+        let nuxtComponentName = this.getCachedComponentName(document.uri.fsPath);
 
-        for (const dir of allComponentDirs) {
-            if (document.uri.fsPath.startsWith(dir)) {
-                nuxtComponentName = this.getNuxtComponentName(document.uri.fsPath, dir);
-                console.log('[provideCodeLenses] Found component name:', nuxtComponentName);
-                break;
+        if (!nuxtComponentName) {
+            console.log('[provideCodeLenses] Component name not in cache, calculating it now');
+            // On ne l'a pas encore dans le cache, le calculer
+            for (const dir of allComponentDirs) {
+                if (document.uri.fsPath.startsWith(dir)) {
+                    nuxtComponentName = this.getNuxtComponentName(document.uri.fsPath, dir);
+                    console.log('[provideCodeLenses] Found component name:', nuxtComponentName);
+                    // Mettre en cache pour une utilisation future
+                    this.componentNameCache.set(document.uri.fsPath, nuxtComponentName);
+                    break;
+                }
             }
+        } else {
+            console.log('[provideCodeLenses] Using cached component name:', nuxtComponentName);
         }
 
         const text = document.getText();
@@ -95,7 +159,8 @@ export class ComponentService {
             const range = new vscode.Range(pos.line, 0, pos.line, 0);
 
             const cacheKey = `${documentCacheKey}:${nuxtComponentName}:setup`;
-            const references = await this.getCachedReferences(cacheKey, document, nuxtComponentName);
+            const references = await this.getCachedReferences(cacheKey, String(nuxtComponentName));
+
             console.log('[provideCodeLenses] Found references count:', references.length);
 
             const referenceCount = references.length;
@@ -125,7 +190,7 @@ export class ComponentService {
                 const range = new vscode.Range(pos.line, 0, pos.line, 0);
 
                 const cacheKey = `${documentCacheKey}:${nuxtComponentName}:defineComponent`;
-                const references = await this.getCachedReferences(cacheKey, document, nuxtComponentName);
+                const references = await this.getCachedReferences(cacheKey, String(nuxtComponentName));
                 console.log('[provideCodeLenses] Found references count:', references.length);
 
                 const referenceCount = references.length;
@@ -156,7 +221,7 @@ export class ComponentService {
                 const range = new vscode.Range(pos.line, 0, pos.line, 0);
 
                 const cacheKey = `${documentCacheKey}:${nuxtComponentName}:defineNuxtComponent`;
-                const references = await this.getCachedReferences(cacheKey, document, nuxtComponentName);
+                const references = await this.getCachedReferences(cacheKey, String(nuxtComponentName));
                 console.log('[provideCodeLenses] Found references count:', references.length);
                 const referenceCount = references.length;
 
@@ -188,7 +253,7 @@ export class ComponentService {
                 const range = new vscode.Range(pos.line, 0, pos.line, 0);
 
                 const cacheKey = `${documentCacheKey}:${nuxtComponentName}:template`;
-                const references = await this.getCachedReferences(cacheKey, document, nuxtComponentName);
+                const references = await this.getCachedReferences(cacheKey, String(nuxtComponentName));
                 console.log('[provideCodeLenses] Found references count:', references.length);
 
                 const referenceCount = references.length;
@@ -211,9 +276,18 @@ export class ComponentService {
         return lenses;
     }
 
+    /**
+     * Récupère le nom du composant depuis le cache
+     */
+    private getCachedComponentName(filePath: string): string | undefined {
+        return this.componentNameCache.get(filePath);
+    }
+
+    /**
+     * Récupère des références mises en cache ou les calcule si nécessaire
+     */
     private async getCachedReferences(
         cacheKey: string,
-        document: vscode.TextDocument,
         componentName: string
     ): Promise<vscode.Location[]> {
         const now = Date.now();
@@ -227,7 +301,8 @@ export class ComponentService {
 
         // Sinon, trouver toutes les références et les mettre en cache
         console.log('[getCachedReferences] Cache miss, finding references for:', componentName);
-        const references = await this.findComponentReferences(document);
+
+        const references = await this.findComponentReferences(componentName);
 
         this.referenceCache.set(cacheKey, {
             references,
@@ -237,28 +312,44 @@ export class ComponentService {
         return references;
     }
 
-    async findComponentReferences(document: vscode.TextDocument): Promise<vscode.Location[]> {
-        console.log('[findComponentReferences] Starting for document:', document.fileName);
-        const allComponentDirs = await this.findAllComponentsDirs();
-        console.log('[findComponentReferences] Found component directories:', allComponentDirs);
+    /**
+     * Récupère les répertoires de composants mis en cache ou les calcule si nécessaire
+     */
+    private async getCachedComponentDirs(): Promise<string[]> {
+        const now = Date.now();
 
-        const filePath = document.uri.fsPath;
-        let nuxtComponentName = '';
-
-        for (const dir of allComponentDirs) {
-            if (filePath.startsWith(dir)) {
-                nuxtComponentName = this.getNuxtComponentName(filePath, dir);
-                console.log('[findComponentReferences] Found component name:', nuxtComponentName);
-                break;
-            }
+        // Retourner les répertoires en cache s'ils sont toujours valides
+        if (this.componentDirsCache && (now - this.componentDirsCache.timestamp < this.dirsCacheTTL)) {
+            console.log('[getCachedComponentDirs] Using cached component directories');
+            return this.componentDirsCache.dirs;
         }
 
-        if (!nuxtComponentName) {
-            console.log('[findComponentReferences] No component name found, returning empty array');
+        // Sinon, trouver tous les répertoires et les mettre en cache
+        console.log('[getCachedComponentDirs] Cache miss, finding component directories');
+        const dirs = await this.findAllComponentsDirs();
+
+        this.componentDirsCache = {
+            dirs,
+            timestamp: now
+        };
+
+        return dirs;
+    }
+
+    /**
+     * Recherche les références d'un composant spécifique
+     */
+    async findComponentReferences(
+        componentName: string
+    ): Promise<vscode.Location[]> {
+        console.log('[findComponentReferences] Starting for component:', componentName);
+
+        if (!componentName) {
+            console.log('[findComponentReferences] No component name provided, returning empty array');
             return [];
         }
 
-        const kebab = PathUtils.pascalToKebabCase(nuxtComponentName);
+        const kebab = PathUtils.pascalToKebabCase(componentName);
         console.log('[findComponentReferences] Kebab case name:', kebab);
 
         const results: vscode.Location[] = [];
@@ -289,7 +380,7 @@ export class ComponentService {
                 }
 
                 const searchPatterns = [
-                    new RegExp(`<${nuxtComponentName}(\\s[\\s\\S]*?)?\\s*(/?)>`, 'gs'),
+                    new RegExp(`<${componentName}(\\s[\\s\\S]*?)?\\s*(/?)>`, 'gs'),
                     new RegExp(`<${kebab}(\\s[\\s\\S]*?)?\\s*(/?)>`, 'gs')
                 ];
 
@@ -487,10 +578,14 @@ export class ComponentService {
         this.autoImportCache.set('components', componentInfos);
     }
 
-    // Méthode pour invalider le cache
-    public invalidateReferenceCache(): void {
-        console.log('[invalidateReferenceCache] Clearing reference cache');
+    /**
+     * Invalide le cache complètement (à utiliser avec parcimonie)
+     */
+    public invalidateAllCaches(): void {
+        console.log('[invalidateAllCaches] Clearing all caches');
         this.referenceCache.clear();
+        this.componentDirsCache = null;
+        this.componentNameCache.clear();
     }
 
     // S'assurer que les ressources sont libérées lorsqu'elles ne sont plus nécessaires
