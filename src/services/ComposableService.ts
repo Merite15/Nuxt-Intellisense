@@ -15,9 +15,6 @@ export class ComposableService {
     private fileWatcher: vscode.FileSystemWatcher | undefined;
 
     constructor(private autoImportCache: Map<string, NuxtComponentInfo[]>) {
-        console.log('[ComposableService] Initialized with autoImportCache size:', autoImportCache.size);
-
-        // Mettre en place un watcher pour les fichiers pertinents
         this.setupFileWatcher();
     }
 
@@ -40,7 +37,6 @@ export class ComposableService {
     }
 
     async provideCodeLenses(document: vscode.TextDocument): Promise<vscode.CodeLens[]> {
-        console.log('[provideCodeLenses] Starting analysis for document:', document.uri.toString());
         const lenses: vscode.CodeLens[] = [];
         const text = document.getText();
         const composableRegex = /export\s+(const|function|async function)\s+(\w+)/g;
@@ -49,7 +45,6 @@ export class ComposableService {
         while ((match = composableRegex.exec(text))) {
             const funcType = match[1];
             const name = match[2];
-            console.log('[provideCodeLenses] Found composable:', { type: funcType, name: name });
 
             const pos = document.positionAt(match.index);
             const range = new vscode.Range(pos.line, 0, pos.line, 0);
@@ -59,7 +54,6 @@ export class ComposableService {
 
             const references = await this.getCachedReferences(cacheKey, document, name, pos);
             const referenceCount = references.length;
-            console.log('[provideCodeLenses] Found references for', name, ':', referenceCount);
 
             lenses.push(
                 new vscode.CodeLens(range, {
@@ -74,7 +68,6 @@ export class ComposableService {
             );
         }
 
-        console.log('[provideCodeLenses] Returning total lenses:', lenses.length);
         return lenses;
     }
 
@@ -89,12 +82,10 @@ export class ComposableService {
 
         // Retourner les références en cache si elles sont toujours valides
         if (cachedData && (now - cachedData.timestamp < this.referenceCacheTTL)) {
-            console.log('[getCachedReferences] Using cached references for:', name);
             return cachedData.references;
         }
 
         // Sinon, trouver toutes les références et les mettre en cache
-        console.log('[getCachedReferences] Cache miss, finding references for:', name);
         const references = await this.findAllReferences(document, name, position);
 
         this.referenceCache.set(cacheKey, {
@@ -106,17 +97,14 @@ export class ComposableService {
     }
 
     private async findAllReferences(document: vscode.TextDocument, name: string, position: vscode.Position): Promise<vscode.Location[]> {
-        console.log('[findAllReferences] Starting search for:', name);
         try {
             const results: vscode.Location[] = [];
 
-            console.log('[findAllReferences] Executing reference provider for:', name);
             const references = await vscode.commands.executeCommand<vscode.Location[]>(
                 'vscode.executeReferenceProvider',
                 document.uri,
                 new vscode.Position(position.line, position.character + name.length - 1)
             ) || [];
-            console.log('[findAllReferences] Initial references found:', references.length);
 
             // Filtrer les fichiers générés
             for (const ref of references) {
@@ -125,16 +113,13 @@ export class ComposableService {
                     results.push(ref);
                 }
             }
-            console.log('[findAllReferences] Filtered references:', results.length);
 
             // Effectuer une recherche basée sur les fichiers uniquement si le fournisseur de références intégré n'a pas trouvé suffisamment de résultats
             if (results.length < 5) {
-                console.log('[findAllReferences] Searching for additional files');
                 const uris = await vscode.workspace.findFiles(
                     '**/*.{vue,js,ts}',
                     '{**/node_modules/**,**/.nuxt/**,**/.output/**,**/dist/**, **/utils/**,**/lib/**,**/helpers/**,**/constants/**,**/shared/**, **/public/**,**/config/**, **/assets/**}'
                 );
-                console.log('[findAllReferences] Found files to analyze:', uris.length);
 
                 const fileReadPromises = uris.map(async (uri) => {
                     if (uri.fsPath === document.uri.fsPath) {
@@ -147,7 +132,6 @@ export class ComposableService {
                         let match;
 
                         while ((match = usageRegex.exec(content)) !== null) {
-                            console.log('[findAllReferences] Found usage in file:', uri.fsPath);
                             const matchText = match[1];
                             const index = match.index;
 
@@ -163,7 +147,6 @@ export class ComposableService {
                             ));
                         }
                     } catch (error) {
-                        console.log('[findAllReferences] Error reading file:', uri.fsPath, error);
                     }
                 });
 
@@ -175,7 +158,6 @@ export class ComposableService {
                 }
             }
 
-            console.log('[findAllReferences] Total references found:', results.length);
             return results;
         } catch (e) {
             console.error('[findAllReferences] Error finding references:', e);
@@ -184,30 +166,22 @@ export class ComposableService {
     }
 
     async scanComposablesDirectory(dir: string): Promise<void> {
-        console.log('[scanComposablesDirectory] Starting scan of directory:', dir);
-
         if (!fs.existsSync(dir)) {
-            console.log('[scanComposablesDirectory] Directory does not exist:', dir);
             return;
         }
 
         const composableInfos: NuxtComponentInfo[] = [];
-
-        console.log('[scanComposablesDirectory] Searching for files');
 
         const files = await vscode.workspace.findFiles(
             path.join(dir, '**/*.{ts,js}').replace(/\\/g, '/'),
             '{**/node_modules/**,**/.nuxt/**,**/.output/**,**/dist/**, **/utils/**,**/lib/**,**/helpers/**,**/constants/**,**/shared/**, **/public/**,**/config/**, **/assets/**}'
         );
 
-        console.log('[scanComposablesDirectory] Found files:', files.length);
-
         for (const file of files) {
             try {
                 const content = fs.readFileSync(file.fsPath, 'utf-8');
 
                 if (content.includes('defineStore')) {
-                    console.log('[scanComposablesDirectory] Skipping store file:', file.fsPath);
                     continue;
                 }
 
@@ -216,7 +190,7 @@ export class ComposableService {
 
                 while ((match = exportRegex.exec(content))) {
                     const name = match[2];
-                    console.log('[scanComposablesDirectory] Found composable:', name, 'in file:', file.fsPath);
+
                     composableInfos.push({
                         name: name,
                         path: file.fsPath,
@@ -228,9 +202,7 @@ export class ComposableService {
             }
         }
 
-        console.log('[scanComposablesDirectory] Total composables found:', composableInfos.length);
         this.autoImportCache.set('composables', composableInfos);
-        console.log('[scanComposablesDirectory] Updated autoImportCache');
 
         // Invalider le cache des références lorsque les composables changent
         this.invalidateReferenceCache();
@@ -238,7 +210,6 @@ export class ComposableService {
 
     // Méthode pour invalider le cache pour les tests ou un rafraîchissement manuel
     public invalidateReferenceCache(): void {
-        console.log('[invalidateReferenceCache] Clearing reference cache');
         this.referenceCache.clear();
     }
 
