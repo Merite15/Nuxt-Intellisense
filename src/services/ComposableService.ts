@@ -152,15 +152,16 @@ export class ComposableService {
 
                 // Traiter les fichiers par lots pour éviter les problèmes de mémoire
                 const batchSize = 50;
+
                 for (let i = 0; i < fileReadPromises.length; i += batchSize) {
                     const batch = fileReadPromises.slice(i, i + batchSize);
+
                     await Promise.all(batch);
                 }
             }
 
             return results;
         } catch (e) {
-            console.error('[findAllReferences] Error finding references:', e);
             return [];
         }
     }
@@ -186,6 +187,7 @@ export class ComposableService {
                 }
 
                 const exportRegex = /export\s+(const|function|async function)\s+(\w+)/g;
+
                 let match: RegExpExecArray | null;
 
                 while ((match = exportRegex.exec(content))) {
@@ -198,7 +200,6 @@ export class ComposableService {
                     });
                 }
             } catch (e) {
-                console.error('[scanComposablesDirectory] Error processing file:', file.fsPath, e);
             }
         }
 

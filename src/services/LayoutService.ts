@@ -110,8 +110,8 @@ export class LayoutService {
             try {
                 const content = fs.readFileSync(uri.fsPath, 'utf-8');
 
-                // Regular expression to match layout: 'layoutName'
                 const regex = new RegExp(`layout\\s*:\\s*(['"\`])${layoutName}\\1`, 'g');
+
                 let match;
 
                 while ((match = regex.exec(content)) !== null) {
@@ -128,7 +128,6 @@ export class LayoutService {
                     ));
                 }
             } catch (e) {
-                console.error('[findLayoutReferences] Error analyzing Vue file:', uri.fsPath, e);
                 continue;
             }
         }
@@ -166,7 +165,6 @@ export class LayoutService {
                     }
                 }
             } catch (e) {
-                console.error('[findLayoutReferences] Error analyzing config file:', uri.fsPath, e);
                 continue;
             }
         }

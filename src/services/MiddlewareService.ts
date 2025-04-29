@@ -98,7 +98,6 @@ export class MiddlewareService {
             try {
                 content = fs.readFileSync(uri.fsPath, 'utf-8');
             } catch (e) {
-                console.error('[findVueFileReferences] Error reading file:', uri.fsPath, e);
                 continue;
             }
 
@@ -229,7 +228,6 @@ export class MiddlewareService {
                     }
                 }
             } catch (e) {
-                console.error('[findNuxtConfigReferences] Error analyzing config file:', uri.fsPath, e);
                 continue;
             }
         }

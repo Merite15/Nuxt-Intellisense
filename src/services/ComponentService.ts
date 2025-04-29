@@ -456,7 +456,6 @@ export class ComponentService {
                     }
                 }
             } catch (error) {
-                console.error('[findAllComponentsDirs] Error reading directory:', dir, error);
             }
         };
 
