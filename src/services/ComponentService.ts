@@ -4,12 +4,42 @@ import * as path from 'path';
 import { PathUtils } from '../utils/pathUtils';
 import { NuxtComponentInfo } from '../types';
 
+interface ReferenceCache {
+    references: vscode.Location[];
+    timestamp: number;
+}
+
 export class ComponentService {
+    private referenceCache: Map<string, ReferenceCache> = new Map();
+    private referenceCacheTTL: number = 300000; // 5 minutes comme fallback
+    private fileWatcher: vscode.FileSystemWatcher | undefined;
+
     constructor(
         private autoImportCache: Map<string, NuxtComponentInfo[]>,
         private nuxtProjectRoot: string
     ) {
         console.log('[ComponentService] Initializing with nuxtProjectRoot:', nuxtProjectRoot);
+
+        // Mettre en place un watcher pour les fichiers pertinents
+        this.setupFileWatcher();
+    }
+
+    private setupFileWatcher() {
+        // Surveiller les changements dans les fichiers Vue
+        this.fileWatcher = vscode.workspace.createFileSystemWatcher(
+            '**/*.vue',
+            false, // Ne pas ignorer les créations
+            false, // Ne pas ignorer les changements
+            false  // Ne pas ignorer les suppressions
+        );
+
+        // Lors d'un changement de fichier, invalider le cache
+        this.fileWatcher.onDidChange(() => this.invalidateReferenceCache());
+        this.fileWatcher.onDidCreate(() => this.invalidateReferenceCache());
+        this.fileWatcher.onDidDelete(() => this.invalidateReferenceCache());
+
+        // S'assurer que le watcher est disposé lorsqu'il n'est plus nécessaire
+        vscode.Disposable.from(this.fileWatcher);
     }
 
     async provideCodeLenses(document: vscode.TextDocument): Promise<vscode.CodeLens[]> {
@@ -50,6 +80,9 @@ export class ComponentService {
 
         let hasAddedLens = false;
 
+        // Générer une clé unique pour ce composant dans ce document
+        const documentCacheKey = document.uri.toString();
+
         // 2.1 Pour les composants avec <script setup>
         const scriptSetupRegex = /<script\s+[^>]*setup[^>]*>/g;
         console.log('[provideCodeLenses] Searching for script setup');
@@ -61,7 +94,8 @@ export class ComponentService {
             const pos = document.positionAt(match.index);
             const range = new vscode.Range(pos.line, 0, pos.line, 0);
 
-            const references = await this.findComponentReferences(document);
+            const cacheKey = `${documentCacheKey}:${nuxtComponentName}:setup`;
+            const references = await this.getCachedReferences(cacheKey, document, nuxtComponentName);
             console.log('[provideCodeLenses] Found references count:', references.length);
 
             const referenceCount = references.length;
@@ -90,7 +124,8 @@ export class ComponentService {
                 const pos = document.positionAt(match.index);
                 const range = new vscode.Range(pos.line, 0, pos.line, 0);
 
-                const references = await this.findComponentReferences(document);
+                const cacheKey = `${documentCacheKey}:${nuxtComponentName}:defineComponent`;
+                const references = await this.getCachedReferences(cacheKey, document, nuxtComponentName);
                 console.log('[provideCodeLenses] Found references count:', references.length);
 
                 const referenceCount = references.length;
@@ -120,7 +155,8 @@ export class ComponentService {
                 const pos = document.positionAt(match.index);
                 const range = new vscode.Range(pos.line, 0, pos.line, 0);
 
-                const references = await this.findComponentReferences(document);
+                const cacheKey = `${documentCacheKey}:${nuxtComponentName}:defineNuxtComponent`;
+                const references = await this.getCachedReferences(cacheKey, document, nuxtComponentName);
                 console.log('[provideCodeLenses] Found references count:', references.length);
                 const referenceCount = references.length;
 
@@ -151,7 +187,8 @@ export class ComponentService {
                 const pos = document.positionAt(match.index);
                 const range = new vscode.Range(pos.line, 0, pos.line, 0);
 
-                const references = await this.findComponentReferences(document);
+                const cacheKey = `${documentCacheKey}:${nuxtComponentName}:template`;
+                const references = await this.getCachedReferences(cacheKey, document, nuxtComponentName);
                 console.log('[provideCodeLenses] Found references count:', references.length);
 
                 const referenceCount = references.length;
@@ -172,6 +209,32 @@ export class ComponentService {
 
         console.log('[provideCodeLenses] Returning lenses count:', lenses.length);
         return lenses;
+    }
+
+    private async getCachedReferences(
+        cacheKey: string,
+        document: vscode.TextDocument,
+        componentName: string
+    ): Promise<vscode.Location[]> {
+        const now = Date.now();
+        const cachedData = this.referenceCache.get(cacheKey);
+
+        // Retourner les références en cache si elles sont toujours valides
+        if (cachedData && (now - cachedData.timestamp < this.referenceCacheTTL)) {
+            console.log('[getCachedReferences] Using cached references for:', componentName);
+            return cachedData.references;
+        }
+
+        // Sinon, trouver toutes les références et les mettre en cache
+        console.log('[getCachedReferences] Cache miss, finding references for:', componentName);
+        const references = await this.findComponentReferences(document);
+
+        this.referenceCache.set(cacheKey, {
+            references,
+            timestamp: now
+        });
+
+        return references;
     }
 
     async findComponentReferences(document: vscode.TextDocument): Promise<vscode.Location[]> {
@@ -207,52 +270,59 @@ export class ComponentService {
 
         console.log('[findComponentReferences] Found files to search:', uris.length);
 
-        for (const uri of uris) {
-            if (path.basename(uri.fsPath) === 'app.vue' ||
-                path.basename(uri.fsPath) === 'error.vue') {
-                continue;
-            }
-
-            let content: string;
-            try {
-                content = fs.readFileSync(uri.fsPath, 'utf-8');
-            } catch (error) {
-                console.log('[findComponentReferences] Error reading file:', uri.fsPath, error);
-                continue;
-            }
-
-            const searchPatterns = [
-                new RegExp(`<${nuxtComponentName}(\\s[\\s\\S]*?)?\\s*(/?)>`, 'gs'),
-                new RegExp(`<${kebab}(\\s[\\s\\S]*?)?\\s*(/?)>`, 'gs')
-            ];
-
-            for (const regex of searchPatterns) {
-                let match;
-                while ((match = regex.exec(content)) !== null) {
-                    console.log('[findComponentReferences] Found reference in file:', uri.fsPath);
-                    const matchText = match[0];
-                    const index = match.index;
-
-                    const before = content.slice(0, index);
-                    const line = before.split('\n').length - 1;
-                    const lineStartIndex = before.lastIndexOf('\n') + 1;
-                    const col = index - lineStartIndex;
-
-                    const matchLines = matchText.split('\n');
-                    const endLine = line + matchLines.length - 1;
-                    const endCol = matchLines.length > 1
-                        ? matchLines[matchLines.length - 1].length
-                        : col + matchText.length;
-
-                    results.push(new vscode.Location(
-                        uri,
-                        new vscode.Range(
-                            new vscode.Position(line, col),
-                            new vscode.Position(endLine, endCol)
-                        )
-                    ));
+        // Traiter les fichiers par lots pour éviter les problèmes de mémoire
+        const batchSize = 50;
+        for (let i = 0; i < uris.length; i += batchSize) {
+            const batch = uris.slice(i, i + batchSize);
+            const batchPromises = batch.map(async (uri) => {
+                if (path.basename(uri.fsPath) === 'app.vue' ||
+                    path.basename(uri.fsPath) === 'error.vue') {
+                    return;
                 }
-            }
+
+                let content: string;
+                try {
+                    content = fs.readFileSync(uri.fsPath, 'utf-8');
+                } catch (error) {
+                    console.log('[findComponentReferences] Error reading file:', uri.fsPath, error);
+                    return;
+                }
+
+                const searchPatterns = [
+                    new RegExp(`<${nuxtComponentName}(\\s[\\s\\S]*?)?\\s*(/?)>`, 'gs'),
+                    new RegExp(`<${kebab}(\\s[\\s\\S]*?)?\\s*(/?)>`, 'gs')
+                ];
+
+                for (const regex of searchPatterns) {
+                    let match;
+                    while ((match = regex.exec(content)) !== null) {
+                        console.log('[findComponentReferences] Found reference in file:', uri.fsPath);
+                        const matchText = match[0];
+                        const index = match.index;
+
+                        const before = content.slice(0, index);
+                        const line = before.split('\n').length - 1;
+                        const lineStartIndex = before.lastIndexOf('\n') + 1;
+                        const col = index - lineStartIndex;
+
+                        const matchLines = matchText.split('\n');
+                        const endLine = line + matchLines.length - 1;
+                        const endCol = matchLines.length > 1
+                            ? matchLines[matchLines.length - 1].length
+                            : col + matchText.length;
+
+                        results.push(new vscode.Location(
+                            uri,
+                            new vscode.Range(
+                                new vscode.Position(line, col),
+                                new vscode.Position(endLine, endCol)
+                            )
+                        ));
+                    }
+                }
+            });
+
+            await Promise.all(batchPromises);
         }
 
         console.log('[findComponentReferences] Total references found:', results.length);
@@ -415,5 +485,18 @@ export class ComponentService {
 
         console.log('[scanComponentsDirectory] Total components found:', componentInfos.length);
         this.autoImportCache.set('components', componentInfos);
+    }
+
+    // Méthode pour invalider le cache
+    public invalidateReferenceCache(): void {
+        console.log('[invalidateReferenceCache] Clearing reference cache');
+        this.referenceCache.clear();
+    }
+
+    // S'assurer que les ressources sont libérées lorsqu'elles ne sont plus nécessaires
+    public dispose(): void {
+        if (this.fileWatcher) {
+            this.fileWatcher.dispose();
+        }
     }
 }
