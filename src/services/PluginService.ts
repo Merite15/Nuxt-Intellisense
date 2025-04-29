@@ -10,7 +10,9 @@ interface ReferenceCache {
 
 export class PluginService {
     private referenceCache: Map<string, ReferenceCache> = new Map();
-    private referenceCacheTTL: number = 300000; // 5 minutes
+
+    private referenceCacheTTL: number = 300000;
+
     private fileWatcher: vscode.FileSystemWatcher | undefined;
 
     constructor() {
@@ -26,7 +28,9 @@ export class PluginService {
         );
 
         this.fileWatcher.onDidChange(() => this.invalidateReferenceCache());
+
         this.fileWatcher.onDidCreate(() => this.invalidateReferenceCache());
+
         this.fileWatcher.onDidDelete(() => this.invalidateReferenceCache());
 
         vscode.Disposable.from(this.fileWatcher);
@@ -34,19 +38,25 @@ export class PluginService {
 
     async provideCodeLenses(document: vscode.TextDocument): Promise<vscode.CodeLens[]> {
         const lenses: vscode.CodeLens[] = [];
+
         const text = document.getText();
 
         const defineNuxtPluginRegex = /defineNuxtPlugin\s*\(/g;
+
         let match: RegExpExecArray | null;
 
         while ((match = defineNuxtPluginRegex.exec(text))) {
             const pos = document.positionAt(match.index);
+
             const range = new vscode.Range(pos.line, 0, pos.line, 0);
+
             const pluginName = path.basename(document.fileName, path.extname(document.fileName));
 
             // Use cache for references
             const cacheKey = `${document.uri.toString()}:${pluginName}`;
+
             const references = await this.getCachedReferences(cacheKey, pluginName);
+
             const referenceCount = references.length;
 
             lenses.push(
@@ -67,6 +77,7 @@ export class PluginService {
 
     private async getCachedReferences(cacheKey: string, pluginName: string): Promise<vscode.Location[]> {
         const now = Date.now();
+
         const cachedData = this.referenceCache.get(cacheKey);
 
         // Retourner les références en cache si elles sont encore valides
@@ -104,27 +115,32 @@ export class PluginService {
         try {
             pluginContent = fs.readFileSync(pluginPath, 'utf-8');
         } catch (e) {
-            console.error('[findPluginReferences] Error reading plugin file:', e);
             return references;
         }
 
         let provides: string[] = [];
+
         let hasDirectives: boolean = false;
+
         let directives: string[] = [];
 
         try {
             // Classic provide detection
             const provideRegex = /nuxtApp\.provide\s*\(\s*['\"`]([$\w]+)['\"`]/g;
+
             let match: RegExpExecArray | null;
+
             while ((match = provideRegex.exec(pluginContent))) {
                 provides.push(match[1]);
             }
 
             // Advanced provide detection
             const provideObjectRegex = /provide\s*:\s*\{([\s\S]*?)\}/g;
+
             const keyRegex = /(?:['\"`]?([$\w]+)['\"`]?\s*:|(\\b[$\w]+),)/g;
 
             let provideObjectMatch: RegExpExecArray | null;
+
             while ((provideObjectMatch = provideObjectRegex.exec(pluginContent))) {
                 const keysBlock = provideObjectMatch[1];
 
@@ -172,23 +188,35 @@ export class PluginService {
                 for (const key of provides) {
                     const patterns = [
                         new RegExp(`useNuxtApp\\(\\)\\s*\\.\\s*\\$${key}\\b`, 'g'),
+
                         new RegExp(`(const|let|var)\\s+\\{[^}]*\\$${key}\\b[^}]*\\}\\s*=\\s*(useNuxtApp\\(\\)|nuxtApp)`, 'g'),
+
                         new RegExp(`nuxtApp\\s*\\.\\s*\\$${key}\\b`, 'g'),
+
                         new RegExp(`Vue\\.prototype\\.\\$${key}\\b`, 'g'),
+
                         new RegExp(`app\\.\\$${key}\\b`, 'g'),
+
                         new RegExp(`this\\.\\$${key}\\b`, 'g'),
+
                         new RegExp(`const\\s+nuxtApp\\s*=\\s*useNuxtApp\\(\\)[^]*?\\{[^}]*\\$${key}\\b[^}]*\\}\\s*=\\s*nuxtApp`, 'gs'),
+
                         new RegExp(`const\\s*\\{\\s*\\$${key}\\s*\\}\\s*=\\s*useNuxtApp\\(\\)`, 'g')
                     ];
 
                     for (const regex of patterns) {
                         let match: RegExpExecArray | null;
+
                         while ((match = regex.exec(fileContent))) {
                             const refKey = `${uri.fsPath}:${match.index}`;
+
                             if (!addedReferences.has(refKey)) {
                                 addedReferences.add(refKey);
+
                                 const start = TextUtils.indexToPosition(fileContent, match.index);
+
                                 const end = TextUtils.indexToPosition(fileContent, match.index + match[0].length);
+
                                 references.push(new vscode.Location(
                                     uri,
                                     new vscode.Range(
@@ -205,14 +233,18 @@ export class PluginService {
                 if (hasDirectives) {
                     for (const directive of directives) {
                         const directiveRegex = new RegExp(`\\sv-${directive}\\b|\\s:v-${directive}\\b`, 'g');
+
                         let match: RegExpExecArray | null;
 
                         while ((match = directiveRegex.exec(fileContent))) {
                             const refKey = `${uri.fsPath}:${match.index}`;
                             if (!addedReferences.has(refKey)) {
                                 addedReferences.add(refKey);
+
                                 const start = TextUtils.indexToPosition(fileContent, match.index);
+
                                 const end = TextUtils.indexToPosition(fileContent, match.index + match[0].length);
+
                                 references.push(new vscode.Location(
                                     uri,
                                     new vscode.Range(
@@ -227,6 +259,7 @@ export class PluginService {
 
                 // Check direct imports
                 const importRegex = new RegExp(`import\\s+[^;]*['"\`]~/plugins/${pluginName}['"\`]`, 'g');
+
                 let match: RegExpExecArray | null;
 
                 while ((match = importRegex.exec(fileContent))) {
@@ -234,8 +267,11 @@ export class PluginService {
                     if (!addedReferences
                         .has(refKey)) {
                         addedReferences.add(refKey);
+
                         const start = TextUtils.indexToPosition(fileContent, match.index);
+
                         const end = TextUtils.indexToPosition(fileContent, match.index + match[0].length);
+
                         references.push(new vscode.Location(
                             uri,
                             new vscode.Range(
