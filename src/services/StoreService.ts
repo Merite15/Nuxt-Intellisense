@@ -48,22 +48,116 @@ export class StoreService {
 
         while ((match = defineStoreRegex.exec(text))) {
             const storeName = match[2];
-
             const pos = document.positionAt(match.index);
-
             const range = new vscode.Range(pos.line, 0, pos.line, 0);
 
             const cacheKey = `${document.uri.toString()}:${storeName}`;
-
             const preciseReferences = await this.getCachedReferences(cacheKey, storeName);
-
             const uniqueReferences = TextUtils.removeDuplicateReferences(preciseReferences);
-
             const referenceCount = uniqueReferences.length;
+
+            // Trouver les informations du store dans le cache
+            const storeInfo = this.autoImportCache.get('stores')?.find(s => s.name === storeName);
+
+
+            let memberDetails = [];
+
+            // Dans provideCodeLenses, modifiez la partie qui ajoute les CodeLens pour les membres :
+            if (storeInfo?.members) {
+                const { methods, variables, getters } = storeInfo.members;
+
+                if (methods?.length) {
+                    memberDetails.push(`⚡ ${methods.length} method${methods.length > 1 ? 's' : ''}`);
+                }
+                if (variables?.length) {
+                    memberDetails.push(`📦 ${variables.length} var${variables.length > 1 ? 's' : ''}`);
+                }
+                if (getters?.length) {
+                    memberDetails.push(`🔍 ${getters.length} getter${getters.length > 1 ? 's' : ''}`);
+                }
+                // Pour les méthodes
+                for (const method of methods || []) {
+
+                    const methodRegex = new RegExp(`(?:async\\s+)?function\\s+${method}\\s*\\(|const\\s+${method}\\s*=\\s*(?:async\\s*)?\\(?([^)=]*)\\)?\\s*=>`);
+                    const methodMatch = text.match(methodRegex);
+                    if (methodMatch) {
+                        const methodPos = text.indexOf(methodMatch[0]);
+                        const methodLine = document.positionAt(methodPos).line;
+                        const methodRange = new vscode.Range(methodLine, 0, methodLine, 0);
+
+                        // Trouver les références de cette méthode
+                        const references = await this.findMemberReferences(storeName, method);
+                        const uniqueReferences = TextUtils.removeDuplicateReferences(references);
+
+                        lenses.push(new vscode.CodeLens(methodRange, {
+                            title: `⚡ ${method}() • ${uniqueReferences.length} ref${uniqueReferences.length !== 1 ? 's' : ''}`,
+                            command: 'editor.action.showReferences',
+                            arguments: [
+                                document.uri,
+                                document.positionAt(methodPos),
+                                uniqueReferences
+                            ],
+                            tooltip: `Method of ${storeName} store\nClick to show references`
+                        }));
+                    }
+                }
+
+                // Pour les variables
+                for (const variable of variables || []) {
+                    const varRegex = new RegExp(`(const|let|var)\\s+${variable}\\s*=[^=]`);
+                    const varMatch = text.match(varRegex);
+                    if (varMatch) {
+                        const varPos = text.indexOf(varMatch[0]);
+                        const varLine = document.positionAt(varPos).line;
+                        const varRange = new vscode.Range(varLine, 0, varLine, 0);
+
+                        const references = await this.findMemberReferences(storeName, variable);
+                        const uniqueReferences = TextUtils.removeDuplicateReferences(references);
+
+                        lenses.push(new vscode.CodeLens(varRange, {
+                            title: `📦 ${variable} • ${uniqueReferences.length} ref${uniqueReferences.length !== 1 ? 's' : ''}`,
+                            command: 'editor.action.showReferences',
+                            arguments: [
+                                document.uri,
+                                document.positionAt(varPos),
+                                uniqueReferences
+                            ],
+                            tooltip: `Variable of ${storeName} store\nClick to show references`
+                        }));
+                    }
+                }
+
+                // Pour les getters
+                for (const getter of getters || []) {
+                    const getterRegex = new RegExp(`const\\s+${getter}\\s*=\\s*computed\\s*\\(`);
+                    const getterMatch = text.match(getterRegex);
+                    if (getterMatch) {
+                        const getterPos = text.indexOf(getterMatch[0]);
+                        const getterLine = document.positionAt(getterPos).line;
+                        const getterRange = new vscode.Range(getterLine, 0, getterLine, 0);
+
+                        const references = await this.findMemberReferences(storeName, getter);
+                        const uniqueReferences = TextUtils.removeDuplicateReferences(references);
+
+                        lenses.push(new vscode.CodeLens(getterRange, {
+                            title: `🔍 ${getter} • ${uniqueReferences.length} ref${uniqueReferences.length !== 1 ? 's' : ''}`,
+                            command: 'editor.action.showReferences',
+                            arguments: [
+                                document.uri,
+                                document.positionAt(getterPos),
+                                uniqueReferences
+                            ],
+                            tooltip: `Getter of ${storeName} store\nClick to show references`
+                        }));
+                    }
+                }
+            }
+
+            const memberInfo = memberDetails.length > 0 ? ` [${memberDetails.join(' | ')}]` : '';
 
             lenses.push(
                 new vscode.CodeLens(range, {
-                    title: `🗃️ ${referenceCount} reference${referenceCount > 1 ? 's' : ''}`,
+                    title: `🗃️ ${storeName}${memberInfo} • ${referenceCount} ref${referenceCount > 1 ? 's' : ''}`,
                     command: 'editor.action.showReferences',
                     arguments: [
                         document.uri,
@@ -202,6 +296,68 @@ export class StoreService {
         }
     }
 
+    private async findMemberReferences(storeName: string, memberName: string): Promise<vscode.Location[]> {
+        const normalizedName = storeName
+            .split(/[-_\s]/)
+            .map(s => s.charAt(0).toUpperCase() + s.slice(1))
+            .join('');
+
+        const storeHookName = `use${normalizedName}Store`;
+        const results: vscode.Location[] = [];
+
+        const uris = await vscode.workspace.findFiles(
+            '**/*.{vue,js,ts}',
+            '{**/node_modules/**,**/.nuxt/**,**/.output/**,**/dist/**,**/utils/**,**/lib/**,**/helpers/**,**/constants/**,**/shared/**,**/public/**,**/config/**,**/assets/**}'
+        );
+
+        for (const uri of uris) {
+            if (FileUtils.shouldSkipFile(uri.fsPath)) {
+                continue;
+            }
+
+            let content: string;
+            try {
+                content = fs.readFileSync(uri.fsPath, 'utf-8');
+            } catch (e) {
+                continue;
+            }
+
+            // Pattern 1: store.member
+            const dotPattern = new RegExp(`\\b${storeHookName}\\(\\).${memberName}\\b|\\b\\w+\\.${memberName}\\b`, 'g');
+            TextUtils.findMatches(dotPattern, content, uri, results);
+
+            // Pattern 2: const { member } = useStore()
+            const destructuringPattern = new RegExp(`const\\s*\\{\\s*${memberName}\\s*\\}\\s*=\\s*${storeHookName}\\(\\\)`, 'g');
+            TextUtils.findMatches(destructuringPattern, content, uri, results);
+
+            // Pattern 3: store.value.member (pour les stores en composition API)
+            const valuePattern = new RegExp(`\\b${storeHookName}\\(\\).value.${memberName}\\b`, 'g');
+            TextUtils.findMatches(valuePattern, content, uri, results);
+        }
+
+        return results;
+    }
+
+    private memberReferenceCache: Map<string, ReferenceCache> = new Map();
+
+    private async getCachedMemberReferences(storeName: string, memberName: string): Promise<vscode.Location[]> {
+        const cacheKey = `${storeName}:${memberName}`;
+        const now = Date.now();
+
+        const cachedData = this.memberReferenceCache.get(cacheKey);
+        if (cachedData && (now - cachedData.timestamp < this.referenceCacheTTL)) {
+            return cachedData.references;
+        }
+
+        const references = await this.findMemberReferences(storeName, memberName);
+        this.memberReferenceCache.set(cacheKey, {
+            references,
+            timestamp: now
+        });
+
+        return references;
+    }
+
     async scanStoresDirectory(dir: string): Promise<void> {
         if (!fs.existsSync(dir)) {
             return;
@@ -223,23 +379,119 @@ export class StoreService {
                 let match: RegExpExecArray | null;
 
                 while ((match = defineStoreRegex.exec(content))) {
-                    storeInfos.push({
+                    const storeInfo: NuxtComponentInfo = {
                         name: match[2],
                         path: file.fsPath,
-                        isAutoImported: true
-                    });
+                        isAutoImported: true,
+                        members: {
+                            state: [],
+                            getters: [],
+                            actions: [],
+                            methods: [],
+                            variables: []
+                        }
+                    };
+
+                    // Détection pour API Options
+                    if (content.includes('state:') || content.includes('getters:') || content.includes('actions:')) {
+                        // Détection des états (state)
+                        const stateRegex = /state\s*\(\s*\)\s*:\s*\(\s*\)\s*=>\s*{([^}]*)}/s;
+                        const stateMatch = content.match(stateRegex);
+                        if (stateMatch && stateMatch[1]) {
+                            const stateContent = stateMatch[1];
+                            const stateVars = stateContent.split('\n')
+                                .map(line => line.trim())
+                                .filter(line => line && !line.startsWith('//') && line.includes(':'))
+                                .map(line => line.split(':')[0].trim());
+                            storeInfo.members!.state = stateVars;
+                        }
+
+                        // Détection des getters
+                        const gettersRegex = /getters\s*:\s*{([^}]*)}/s;
+                        const gettersMatch = content.match(gettersRegex);
+                        if (gettersMatch && gettersMatch[1]) {
+                            const gettersContent = gettersMatch[1];
+                            const getters = gettersContent.split('\n')
+                                .map(line => line.trim())
+                                .filter(line => line && !line.startsWith('//') && line.includes('('))
+                                .map(line => line.split('(')[0].trim());
+                            storeInfo.members!.getters = getters;
+                        }
+
+                        // Détection des actions
+                        const actionsRegex = /actions\s*:\s*{([^}]*)}/s;
+                        const actionsMatch = content.match(actionsRegex);
+                        if (actionsMatch && actionsMatch[1]) {
+                            const actionsContent = actionsMatch[1];
+                            const actions = actionsContent.split('\n')
+                                .map(line => line.trim())
+                                .filter(line => line && !line.startsWith('//') && line.includes('('))
+                                .map(line => line.split('(')[0].trim());
+                            storeInfo.members!.actions = actions;
+                        }
+                    }
+
+                    // Détection pour API Composition
+                    else {
+                        // Détection des variables (const, let, var)
+                        const variableRegex = /(const|let|var)\s+([a-zA-Z_$][0-9a-zA-Z_$]*)\s*(?=[:=])/g;
+                        let varMatch;
+                        while ((varMatch = variableRegex.exec(content)) !== null) {
+                            if (!storeInfo.members!.variables!.includes(varMatch[2])) {
+                                storeInfo.members!.variables!.push(varMatch[2]);
+                            }
+                        }
+
+                        // Détection des méthodes (function, async function, arrow)
+                        const functionRegex = /(?:async\s+)?function\s+([a-zA-Z_$][0-9a-zA-Z_$]*)\s*\(|const\s+([a-zA-Z_$][0-9a-zA-Z_$]*)\s*=\s*(?:async\s*)?\(?([^)=]*)\)?\s*=>/g;
+                        let funcMatch;
+                        while ((funcMatch = functionRegex.exec(content)) !== null) {
+                            const methodName = funcMatch[1] || funcMatch[2];
+                            if (methodName && !storeInfo.members!.methods!.includes(methodName)) {
+                                storeInfo.members!.methods!.push(methodName);
+                            }
+                        }
+
+                        // Détection des computed (getters)
+                        const computedRegex = /const\s+([a-zA-Z_$][0-9a-zA-Z_$]*)\s*=\s*computed\s*\(/g;
+                        let computedMatch;
+                        while ((computedMatch = computedRegex.exec(content)) !== null) {
+                            if (!storeInfo.members!.getters!.includes(computedMatch[1])) {
+                                storeInfo.members!.getters!.push(computedMatch[1]);
+                            }
+                        }
+
+                        // Analyse du return pour vérifier ce qui est exposé
+                        const returnRegex = /return\s*{([^}]*)}/s;
+                        const returnMatch = content.match(returnRegex);
+                        if (returnMatch && returnMatch[1]) {
+                            const returnContent = returnMatch[1];
+                            const returnedMembers = returnContent.split(',')
+                                .map(line => line.trim())
+                                .filter(line => line && !line.startsWith('//') && !line.startsWith('...'))
+                                .map(line => line.split(':')[0].trim());
+
+                            // Filtrer les membres non exposés
+                            storeInfo.members!.variables = storeInfo.members!.variables!.filter(v => returnedMembers.includes(v));
+                            storeInfo.members!.methods = storeInfo.members!.methods!.filter(m => returnedMembers.includes(m));
+                            storeInfo.members!.getters = storeInfo.members!.getters!.filter(g => returnedMembers.includes(g));
+                        }
+                    }
+
+                    storeInfos.push(storeInfo);
                 }
             } catch (e) {
+                console.error(`Error parsing store file ${file.fsPath}:`, e);
             }
         }
 
         this.autoImportCache.set('stores', storeInfos);
-
         this.invalidateReferenceCache();
     }
 
     public invalidateReferenceCache(): void {
         this.referenceCache.clear();
+        this.memberReferenceCache.clear();
     }
 
     public dispose(): void {

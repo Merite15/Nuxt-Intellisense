@@ -10,5 +10,12 @@ export interface NuxtComponentInfo {
     name: string;
     path: string;
     isAutoImported: boolean;
-    exportType?: string;
+    exportType?: string
+    members?: {
+        state?: string[];
+        getters?: string[];
+        actions?: string[];
+        methods?: string[];
+        variables?: string[];
+    };
 }
