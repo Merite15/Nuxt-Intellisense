@@ -86,7 +86,7 @@ export class StoreService {
                         const methodRange = new vscode.Range(methodLine, 0, methodLine, 0);
 
                         // Trouver les références de cette méthode
-                        const references = await this.findMemberReferences(storeName, method);
+                        const references = await this.getCachedMemberReferences(storeName, method);
                         const uniqueReferences = TextUtils.removeDuplicateReferences(references);
 
                         lenses.push(new vscode.CodeLens(methodRange, {
@@ -111,7 +111,7 @@ export class StoreService {
                         const varLine = document.positionAt(varPos).line;
                         const varRange = new vscode.Range(varLine, 0, varLine, 0);
 
-                        const references = await this.findMemberReferences(storeName, variable);
+                        const references = await this.getCachedMemberReferences(storeName, variable);
                         const uniqueReferences = TextUtils.removeDuplicateReferences(references);
 
                         lenses.push(new vscode.CodeLens(varRange, {
@@ -136,7 +136,7 @@ export class StoreService {
                         const getterLine = document.positionAt(getterPos).line;
                         const getterRange = new vscode.Range(getterLine, 0, getterLine, 0);
 
-                        const references = await this.findMemberReferences(storeName, getter);
+                        const references = await this.getCachedMemberReferences(storeName, getter);
                         const uniqueReferences = TextUtils.removeDuplicateReferences(references);
 
                         lenses.push(new vscode.CodeLens(getterRange, {
@@ -345,6 +345,17 @@ export class StoreService {
                 if (!storeAliasPatterns.includes(alias)) {
                     storeAliasPatterns.push(alias);
                 }
+            }
+
+            // Nouveau: Détection des références via storeToRefs
+            // Pattern: const { member } = storeToRefs(store)
+            const storeToRefsPattern = new RegExp(`const\\s*\\{\\s*${memberName}\\s*\\}\\s*=\\s*storeToRefs\\(\\s*\\w+Store\\s*\\)`, 'g');
+            TextUtils.findMatches(storeToRefsPattern, content, uri, results);
+
+            // Pattern spécifique pour les aliases + storeToRefs
+            for (const alias of storeAliasPatterns) {
+                const aliasStoreToRefsPattern = new RegExp(`const\\s*\\{\\s*${memberName}\\s*\\}\\s*=\\s*storeToRefs\\(\\s*${alias}\\s*\\)`, 'g');
+                TextUtils.findMatches(aliasStoreToRefsPattern, content, uri, results);
             }
         }
 
