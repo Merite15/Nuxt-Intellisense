@@ -1,14 +1,7 @@
 import * as vscode from 'vscode';
 import { NuxtIntellisense } from './providers/NuxtIntellisense';
 
-/**
- * @author Merite15
- * @created 2025-04-26
- *
- * Cette fonction est appelée quand votre extension est activée
- * Votre extension est activée la première fois que la commande est exécutée
- */
-export function activate(context: vscode.ExtensionContext) {
+export async function activate(context: vscode.ExtensionContext) {
   const codeLensProvider = new NuxtIntellisense();
 
   context.subscriptions.push(
@@ -22,26 +15,21 @@ export function activate(context: vscode.ExtensionContext) {
     )
   );
 
-  // Enregistrer les commandes personnalisées si nécessaire
   const disposableCommands = [
     vscode.commands.registerCommand('nuxt-intellisense.refreshCodeLens', () => {
       vscode.commands.executeCommand('editor.action.triggerParameterHints');
     }),
 
     vscode.commands.registerCommand('nuxt-intellisense.showDocumentation', () => {
-      vscode.env.openExternal(
-        vscode.Uri.parse('https://github.com/Merite15/Nuxt-Intellisense#readme')
-      );
+      vscode.Uri.parse('https://github.com/Merite15/Nuxt-Intellisense#readme')
     })
   ];
 
-  // Ajouter les commandes aux abonnements
   context.subscriptions.push(...disposableCommands);
 
-  // Configuration de l'extension
   const config = vscode.workspace.getConfiguration('nuxt-intellisense');
-
   const showWelcomeMessage = config.get('showWelcomeMessage', true);
+
   if (showWelcomeMessage) {
     vscode.window.showInformationMessage(
       'Nuxt Intellisense is now active! Start working with in your Nuxt project.',
@@ -56,13 +44,24 @@ export function activate(context: vscode.ExtensionContext) {
     });
   }
 
-  // Log d'activation
+  const currentVersion = vscode.extensions.getExtension('MeriteK.nuxt-intellisense')?.packageJSON.version;
+
+  const previousVersion = context.globalState.get<string>('nuxt-intellisense-version');
+
+  if (currentVersion && currentVersion !== previousVersion) {
+    context.globalState.update('nuxt-intellisense-version', currentVersion);
+
+    const changelogUri = vscode.Uri.joinPath(context.extensionUri, 'CHANGELOG.md');
+    try {
+      await vscode.commands.executeCommand('markdown.showPreview', changelogUri);
+    } catch (error) {
+      vscode.window.showWarningMessage('Failed to open changelog preview.');
+    }
+  }
+
   console.log('Extension "nuxt-intellisense" is now active!');
 }
 
-/**
- * Cette méthode est appelée quand votre extension est désactivée
- */
 export function deactivate() {
   console.log('Extension "nuxt-intellisense" is now deactivated!');
 }

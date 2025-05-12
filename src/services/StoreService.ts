@@ -90,7 +90,7 @@ export class StoreService {
                         const uniqueReferences = TextUtils.removeDuplicateReferences(references);
 
                         lenses.push(new vscode.CodeLens(methodRange, {
-                            title: `⚡ ${method}() • ${uniqueReferences.length} ref${uniqueReferences.length !== 1 ? 's' : ''}`,
+                            title: `⚡ ${method}() • ${uniqueReferences.length} reference${uniqueReferences.length !== 1 ? 's' : ''}`,
                             command: 'editor.action.showReferences',
                             arguments: [
                                 document.uri,
@@ -115,7 +115,7 @@ export class StoreService {
                         const uniqueReferences = TextUtils.removeDuplicateReferences(references);
 
                         lenses.push(new vscode.CodeLens(varRange, {
-                            title: `📦 ${variable} • ${uniqueReferences.length} ref${uniqueReferences.length !== 1 ? 's' : ''}`,
+                            title: `📦 ${variable} • ${uniqueReferences.length} reference${uniqueReferences.length !== 1 ? 's' : ''}`,
                             command: 'editor.action.showReferences',
                             arguments: [
                                 document.uri,
@@ -140,7 +140,7 @@ export class StoreService {
                         const uniqueReferences = TextUtils.removeDuplicateReferences(references);
 
                         lenses.push(new vscode.CodeLens(getterRange, {
-                            title: `🔍 ${getter} • ${uniqueReferences.length} ref${uniqueReferences.length !== 1 ? 's' : ''}`,
+                            title: `🔍 ${getter} • ${uniqueReferences.length} reference${uniqueReferences.length !== 1 ? 's' : ''}`,
                             command: 'editor.action.showReferences',
                             arguments: [
                                 document.uri,
@@ -157,7 +157,7 @@ export class StoreService {
 
             lenses.push(
                 new vscode.CodeLens(range, {
-                    title: `🗃️ ${storeName}${memberInfo} • ${referenceCount} ref${referenceCount > 1 ? 's' : ''}`,
+                    title: `🗃️ ${storeName}${memberInfo} • ${referenceCount} reference${referenceCount > 1 ? 's' : ''}`,
                     command: 'editor.action.showReferences',
                     arguments: [
                         document.uri,

@@ -5,6 +5,7 @@
   "description": "Enhanced IntelliSense for Nuxt3 projects",
   "version": "0.7.0",
   "publisher": "MeriteK",
+  "changelog": "CHANGELOG.md",
   "engines": {
     "vscode": "^1.60.0"
   },
