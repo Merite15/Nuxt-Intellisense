@@ -310,6 +310,9 @@ export class StoreService {
             '{**/node_modules/**,**/.nuxt/**,**/.output/**,**/dist/**,**/utils/**,**/lib/**,**/helpers/**,**/constants/**,**/shared/**,**/public/**,**/config/**,**/assets/**}'
         );
 
+        // Nouveau: Détection des alias de store
+        const storeAliasPatterns: string[] = [];
+
         for (const uri of uris) {
             if (FileUtils.shouldSkipFile(uri.fsPath)) {
                 continue;
@@ -322,8 +325,8 @@ export class StoreService {
                 continue;
             }
 
-            // Pattern 1: store.member
-            const dotPattern = new RegExp(`\\b${storeHookName}\\(\\).${memberName}\\b|\\b\\w+\\.${memberName}\\b`, 'g');
+            // Pattern 1: store.member (avec le hook direct)
+            const dotPattern = new RegExp(`\\b${storeHookName}\\(\\).${memberName}\\b`, 'g');
             TextUtils.findMatches(dotPattern, content, uri, results);
 
             // Pattern 2: const { member } = useStore()
@@ -333,6 +336,42 @@ export class StoreService {
             // Pattern 3: store.value.member (pour les stores en composition API)
             const valuePattern = new RegExp(`\\b${storeHookName}\\(\\).value.${memberName}\\b`, 'g');
             TextUtils.findMatches(valuePattern, content, uri, results);
+
+            // Nouveau: Détection des alias de store (const adminStore = useAdminStore())
+            const storeAliasRegex = new RegExp(`const\\s+(\\w+)\\s*=\\s*${storeHookName}\\(\\\)`, 'g');
+            let aliasMatch;
+            while ((aliasMatch = storeAliasRegex.exec(content)) !== null) {
+                const alias = aliasMatch[1];
+                if (!storeAliasPatterns.includes(alias)) {
+                    storeAliasPatterns.push(alias);
+                }
+            }
+        }
+
+        // Nouveau: Recherche des références via les alias détectés
+        if (storeAliasPatterns.length > 0) {
+            for (const uri of uris) {
+                if (FileUtils.shouldSkipFile(uri.fsPath)) {
+                    continue;
+                }
+
+                let content: string;
+                try {
+                    content = fs.readFileSync(uri.fsPath, 'utf-8');
+                } catch (e) {
+                    continue;
+                }
+
+                for (const alias of storeAliasPatterns) {
+                    // Pattern 4: alias.member (adminStore.get())
+                    const aliasDotPattern = new RegExp(`\\b${alias}\\.${memberName}\\b`, 'g');
+                    TextUtils.findMatches(aliasDotPattern, content, uri, results);
+
+                    // Pattern 5: alias.value.member (pour les stores en composition API)
+                    const aliasValuePattern = new RegExp(`\\b${alias}\\.value\\.${memberName}\\b`, 'g');
+                    TextUtils.findMatches(aliasValuePattern, content, uri, results);
+                }
+            }
         }
 
         return results;
