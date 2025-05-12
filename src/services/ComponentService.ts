@@ -345,6 +345,35 @@ export class ComponentService {
                         const matchText = match[0];
                         const index = match.index;
 
+                        // Vérifie si c'est dans une section script et potentiellement une annotation de type
+                        const scriptTagMatch = /<script[^>]*>/g;
+                        let insideScript = false;
+                        let scriptStart: number | null = null;
+                        let scriptEnd: number | null = null;
+                        let scriptTag: RegExpExecArray | null;
+
+                        while ((scriptTag = scriptTagMatch.exec(content)) !== null) {
+                            const scriptOpenIndex = scriptTag.index;
+                            const scriptCloseIndex = content.indexOf('</script>', scriptOpenIndex);
+                            if (scriptCloseIndex !== -1 && index > scriptOpenIndex && index < scriptCloseIndex) {
+                                insideScript = true;
+                                scriptStart = scriptOpenIndex;
+                                scriptEnd = scriptCloseIndex;
+                                break;
+                            }
+                        }
+
+                        if (insideScript) {
+                            const surrounding = content.slice(Math.max(scriptStart! + 1, index - 100), index + 100);
+                            const tsTypeContext = new RegExp(`\\b(ref|reactive|defineComponent|defineNuxtComponent)?\\s*<\\s*${componentName}\\s*>`);
+                            const variableTypeContext = new RegExp(`:\\s*${componentName}\\b`);
+
+                            if (tsTypeContext.test(surrounding) || variableTypeContext.test(surrounding)) {
+                                continue; // ignorer ce faux positif
+                            }
+                        }
+
+                        // position et ajout comme d’habitude
                         const before = content.slice(0, index);
                         const line = before.split('\n').length - 1;
                         const lineStartIndex = before.lastIndexOf('\n') + 1;
