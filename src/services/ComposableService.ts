@@ -96,11 +96,12 @@ export class ComposableService {
         const items: ExposedItem[] = [];
 
         // 1. Trouver les composables exportés
-        const composableRegex = /export\s+(const|function|async\s+function)\s+(\w+)/g;
+        const composableRegex = /export\s+(default\s+)?(const|function|async\s+function)\s+(\w+)/g;
+
         let match: RegExpExecArray | null;
 
         while ((match = composableRegex.exec(text))) {
-            const composableName = match[2];
+            const composableName = match[3];
             const pos = document.positionAt(match.index);
 
             // Ajouter le composable lui-même
@@ -508,7 +509,7 @@ export class ComposableService {
                     continue;
                 }
 
-                const exportRegex = /export\s+(const|function|async function)\s+(\w+)/g;
+                const exportRegex = /export\s+(default\s+)?(const|function|async\s+function)\s+(\w+)/g;
 
                 let match: RegExpExecArray | null;
 
